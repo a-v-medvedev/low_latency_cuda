@@ -15,11 +15,13 @@
 /*
 $ nvcc --extended-lambda -arch=native -O3 -o psum_test_custom psum_test.cu
 $ nvcc --extended-lambda -arch=native -O3 -DWITH_THRUST_SCAN -o psum_test_thrust psum_test.cu
+$ nvfortran -cuda -acc=gpu -O3 -o psum_test_fortran psum_test_fortran.f90 -cudalib=cutensor
 $ ./psum_test_custom > custom.log
 $ ./psum_test_thrust > thrust.log
-$ paste custom.log thrust.log > thrustvscustom.txt
-$ cat thrustvscustom.txt | sed 's/[ \t]i=.* / /;s/[iusec]*=//g;/^[ \t]*1[ \t]/d' > table.txt
-$ cat table.txt | awk '{if (NF==3) printf "%10d %10.6f %10.6f -- %5.1f %5.1f\n", $1, $1 / $2 / 1024, $1 / $3 / 1024, $2, $3 }' > table_pretty.txt
+$ ./psum_test_fortran > fortran.log
+$ paste custom.log thrust.log fortran.log > compare.txt
+$ cat compare.txt | sed 's/[ \t]i=[^ ]* / /g;s/[iusec]*=//g;/^[ \t]*1[ \t]/d' > table.txt
+$ cat table.txt | awk '{if (NF==4) printf "%10d %10.6f %10.6f %10.6f -- %5.1f %5.1f %5.1f\n", $1, $1 / $2 / 1024, $1 / $3 / 1024, $1 / $4 / 1024, $2, $3, $4 }' > table_pretty.txt
 
 General observations:
 - we can reach 2.4..6.6 usec latency for arrays of less than 100K elements
