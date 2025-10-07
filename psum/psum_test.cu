@@ -30,6 +30,8 @@ General observations:
   - [256K; 512K) elements
   - [5M; Inf) elements
 - BW smoothly grows after 5M with the thrust version up to ~160 Gigatranfers per second
+- we also have the Fortran code with the SUM_PREFIX intrinsic doing the same: it is generally worse 
+  besides one diapason: [1.6M; 10M] where it significantly outpeforms thrust code
 
      bytes   bw GINTps custom   bw GINTps thrust        usec custom  usec thrust 
          2   0.000824           0.000148         --       2.4          13.2
