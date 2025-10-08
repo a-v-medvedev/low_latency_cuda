@@ -290,32 +290,29 @@ CONTAINS
       INTEGER, INTENT(in) :: x(:,:)
       INTEGER, INTENT(in) :: threshold
       INTEGER, INTENT(inout) :: nptidx(:)
-      INTEGER, INTENT(inout) :: npti
+      INTEGER, INTENT(inout) :: npti 
       INTEGER, ALLOCATABLE, DIMENSION(:) :: scan_idxflags
       INTEGER, ALLOCATABLE, DIMENSION(:) :: scan_idxoffsets
       INTEGER :: scan_idx
       INTEGER :: scan_offset
       INTEGER :: sz, jpi, jpj, ji, jj
 
-      
+      npti = 0 
       sz = size(x)
       jpi = size(x, 1)
       jpj = size(x, 2)
       ALLOCATE(scan_idxflags(sz))
       ALLOCATE(scan_idxoffsets(sz))
-      !$acc data create(scan_idxflags,scan_idxoffsets)
+      !$acc data create(scan_idxflags,scan_idxoffsets) 
       
-      !$acc kernels
-      scan_idxflags(:)=0
-      scan_idxoffsets(:)=0
-      !$acc end kernels
-      
-      !$acc parallel loop collapse(2) private(scan_idx) present(x)
+      !$acc parallel loop collapse(2) private(scan_idx) present(x) async(1)
       DO jj = 1, jpj
          DO ji = 1, jpi
+           scan_idx = (jj - 1) * jpi + ji
            IF ( x(ji,jj) > threshold ) THEN
-              scan_idx = (jj - 1) * jpi + ji
               scan_idxflags(scan_idx) = 1
+           else  
+              scan_idxflags(scan_idx) = 0
            ENDIF
          END DO
       END DO
@@ -326,7 +323,7 @@ CONTAINS
       !!$acc end host_data
       CALL sum_prefix_custom(scan_idxflags, scan_idxoffsets)
      
-      !$acc parallel loop collapse(2) private(scan_idx,scan_offset) present(nptidx)
+      !$acc parallel loop collapse(2) private(scan_idx,scan_offset) present(nptidx) async(1)
       DO jj = 1, jpj
          DO ji = 1, jpi
             scan_idx = (jj - 1) * jpi + ji
