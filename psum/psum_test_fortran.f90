@@ -1,4 +1,4 @@
-!! nvfortran -cuda -acc=gpu -O3 -o psum_fortran_test psum_fortran_test.f90 -cudalib=cutensor
+!! nvfortran -cuda -acc=gpu -O3 -o psum_test_fortran psum_test_fortran.f90 -cudalib=cutensor
 
 PROGRAM psum_test
    IMPLICIT NONE
