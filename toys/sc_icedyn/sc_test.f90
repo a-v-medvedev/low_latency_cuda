@@ -296,6 +296,7 @@ CONTAINS
       INTEGER :: scan_idx
       INTEGER :: scan_offset
       INTEGER :: sz, jpi, jpj, ji, jj
+      LOGICAL :: nptidxdone = .false.
 
       npti = 0 
       sz = size(x)
@@ -321,8 +322,9 @@ CONTAINS
       !!$acc host_data use_device(scan_idxflags, scan_idxoffsets)
       !scan_idxoffsets = SUM_PREFIX(scan_idxflags) 
       !!$acc end host_data
-      CALL sum_prefix_custom(scan_idxflags, scan_idxoffsets)
+      CALL sum_prefix_custom(scan_idxflags, scan_idxoffsets, nptidx, nptidxdone)
      
+      if (.not. nptidxdone) then
       !$acc parallel loop collapse(2) private(scan_idx,scan_offset) present(nptidx) async(1)
       DO jj = 1, jpj
          DO ji = 1, jpi
@@ -334,8 +336,9 @@ CONTAINS
          END DO
       END DO
       !$acc end parallel loop
+      endif
      
-      !$acc kernels
+      !$acc kernels async(1)
       npti = scan_idxoffsets(sz)
       !$acc end kernels
 
@@ -345,17 +348,17 @@ CONTAINS
             
    END SUBROUTINE
 
-   SUBROUTINE sum_prefix_custom(input, output)
-      use cutensorex, only: sum_prefix
-      INTEGER, INTENT(in) :: input(:)
-      INTEGER, INTENT(out) :: output(:)
-      INTEGER, ALLOCATABLE :: y(:)
-      !$acc data present(input,output)
-      !!!$acc host_data use_device(input, y) 
-      output = SUM_PREFIX(input)
-      !!!$acc end host_data 
-      !$acc end data
-   END SUBROUTINE
+!!   SUBROUTINE sum_prefix_custom(input, output, nptidx, nptidxdone)
+!!      use cutensorex, only: sum_prefix
+!!      INTEGER, INTENT(in) :: input(:)
+!!      INTEGER, INTENT(out) :: output(:)
+!!      INTEGER, ALLOCATABLE :: y(:)
+!!      !$acc data present(input,output)
+!!      !!!$acc host_data use_device(input, y) 
+!!      output = SUM_PREFIX(input)
+!!      !!!$acc end host_data 
+!!      !$acc end data
+!!   END SUBROUTINE
 
 END PROGRAM
 
