@@ -17,8 +17,14 @@ PROGRAM SCTEST
    call test1(x_,y_)
    !!call test2(x_,y_)
    call test3(x_,y_)
+#if defined WITH_CUTENSOREX
    call test4(x_,y_)
-   
+   call test5(x_,y_)
+   call test6(x_, y_)
+#endif
+   call test7(x_, y_)
+  
+   !! actual tests 
    ncycles = 10
    write (*,*) "-- test1:"
    call test1(x_, y_)
@@ -27,12 +33,17 @@ PROGRAM SCTEST
    !!call test2(x_, y_)
    write (*,*) "-- test3:"
    call test3(x_, y_)
+#if defined WITH_CUTENSOREX
    write (*,*) "-- test4:"
    call test4(x_, y_)
    write (*,*) "-- test5:"
    call test5(x_, y_)
    write (*,*) "-- test6:"
    call test6(x_, y_)
+#endif
+   write (*,*) "-- test7:"
+   call test7(x_, y_)
+
 
 
 CONTAINS 
@@ -188,7 +199,6 @@ CONTAINS
          END DO
          !$acc wait(1)
       end do
-      call cudaDeviceSynchronize()
       call system_clock(count_end)
       !$acc end data
 
@@ -200,7 +210,8 @@ CONTAINS
       endif 
       DEALLOCATE(nptidx, z1, z2, z3, z4, z5, z6, z7, z8, z9, z10)
    END SUBROUTINE
- 
+
+#if defined WITH_CUTENSOREX 
    ! the GPU version of test1 -- expected to call packloc() and pack() from the cutensorex, uses pointer x1d instead of reshape
    SUBROUTINE test4(x, y)
       USE cutensorex, only: pack, packloc
@@ -319,7 +330,7 @@ CONTAINS
       endif 
       DEALLOCATE(nptidx, z1, z2, z3, z4, z5, z6, z7, z8, z9, z10)
    END SUBROUTINE
- 
+
    ! variation of test5 -- replace simple GPU versions of tab_*() calls with a single-kernel approach: here we have a complex loop
    ! that calls the devece routines for tab_*(), all in parallel
    SUBROUTINE test6(x, y)
@@ -363,7 +374,6 @@ CONTAINS
          END DO
          !$acc wait(1)
       end do
-      call cudaDeviceSynchronize()
       call system_clock(count_end)
       !$acc end data
 
@@ -375,6 +385,57 @@ CONTAINS
       endif 
       DEALLOCATE(nptidx, z1, z2, z3, z4, z5, z6, z7, z8, z9, z10)
    END SUBROUTINE
+ #endif
+
+   ! variation of test6 -- replace packloc with packloc_custom
+   SUBROUTINE test7(x, y)
+      INTEGER :: x(:,:), y(:,:)
+      TARGET :: x
+      INTEGER :: i, npti
+      INTEGER, ALLOCATABLE :: nptidx(:)
+      LOGICAL, ALLOCATABLE :: mask(:)
+      INTEGER, ALLOCATABLE :: z1(:), z2(:), z3(:), z4(:), z5(:), z6(:), z7(:), z8(:), z9(:), z10(:)
+      INTEGER :: k, m, p, count_rate, count_start, count_end
+
+      allocate(nptidx(jpi*jpj))  ! largest possible size
+      allocate(z1(jpi*jpj),z2(jpi*jpj),z3(jpi*jpj),z4(jpi*jpj),z5(jpi*jpj),z6(jpi*jpj),z7(jpi*jpj),z8(jpi*jpj),z9(jpi*jpj),z10(jpi*jpj))       ! largest possible size
+
+      !$acc data copyin(x,y) copyout(nptidx,z1) create(z2,z3,z4,z5,z6,z7,z8,z9,z10)
+      call system_clock(count_rate = count_rate)
+      call system_clock(count_start)
+      do k = 1, ncycles
+         call packloc_custom(x, threshold, nptidx, npti)
+         DO m = 1, ncycles_tab
+            !$acc parallel loop gang(dim:2) vector_length(256) num_gangs(2048) async(1)
+            do p=1,10
+            select case(p)
+            case(1)  ; call tab_2d_1d_device(npti, nptidx, z1, y)
+            case(2)  ; call tab_2d_1d_device(npti, nptidx, z2, y)
+            case(3)  ; call tab_2d_1d_device(npti, nptidx, z3, y)
+            case(4)  ; call tab_2d_1d_device(npti, nptidx, z4, y)
+            case(5)  ; call tab_2d_1d_device(npti, nptidx, z5, y)
+            case(6)  ; call tab_2d_1d_device(npti, nptidx, z6, y)
+            case(7)  ; call tab_2d_1d_device(npti, nptidx, z7, y)
+            case(8)  ; call tab_2d_1d_device(npti, nptidx, z8, y)
+            case(9)  ; call tab_2d_1d_device(npti, nptidx, z9, y)
+            case(10) ; call tab_2d_1d_device(npti, nptidx, z10, y)
+            end select
+            end do
+         END DO
+         !$acc wait(1)
+      end do
+      call system_clock(count_end)
+      !$acc end data
+
+      if (ncycles /= 1) then
+         write (*,*) "npti: ", npti
+         write (*,*) "SUM nptidx: ", SUM(nptidx(1:npti))
+         write (*,*) "SUM z: ", SUM(z1(1:npti))
+         write (*,*) "time: ", INT(real(count_end - count_start) / real(count_rate) / ncycles * 1e6)
+      endif
+      DEALLOCATE(nptidx, z1, z2, z3, z4, z5, z6, z7, z8, z9, z10)
+   END SUBROUTINE
+
 
    SUBROUTINE tab_2d_1d( ndim1d, tab_ind, tab1d, tab2d )
       !!----------------------------------------------------------------------
@@ -405,15 +466,13 @@ CONTAINS
       !
       INTEGER ::   jn , jid, jjd
       !!----------------------------------------------------------------------
-      !$acc data present(tab1d,tab2d,tab_ind) async(1)
-      !$acc parallel loop private(jid,jjd) async(1)
+      !$acc parallel loop gang vector default(present) private(jid,jjd) async(1)
       DO jn = 1, ndim1d
          jid        = MOD( tab_ind(jn) - 1 , jpi ) + 1
          jjd        =    ( tab_ind(jn) - 1 ) / jpi + 1
          tab1d( jn) = tab2d( jid, jjd)
       END DO
       !$acc end parallel loop
-      !$acc end data
    END SUBROUTINE tab_2d_1d_gpu
 
    SUBROUTINE tab_2d_1d_device( ndim1d, tab_ind, tab1d, tab2d )
@@ -438,6 +497,7 @@ CONTAINS
    END SUBROUTINE tab_2d_1d_device
 
    SUBROUTINE packloc_custom(x, threshold, nptidx, npti)
+      USE sum_prefix_custom, only: sum_prefix_custom
       INTEGER, INTENT(in) :: x(:,:)
       INTEGER, INTENT(in) :: threshold
       INTEGER, INTENT(inout) :: nptidx(:)
@@ -452,9 +512,10 @@ CONTAINS
       sz = size(x)
       jpi = size(x, 1)
       jpj = size(x, 2)
+
       ALLOCATE(scan_idxflags(sz))
       ALLOCATE(scan_idxoffsets(sz))
-      !$acc data create(scan_idxflags,scan_idxoffsets) 
+      !$acc data create(scan_idxflags,scan_idxoffsets)
       
       !$acc parallel loop collapse(2) private(scan_idx) present(x) async(1)
       DO jj = 1, jpj
@@ -469,9 +530,11 @@ CONTAINS
       END DO
       !$acc end parallel loop
 
+      !$acc host_data use_device(scan_idxflags, scan_idxoffsets)
       CALL sum_prefix_custom(scan_idxflags, scan_idxoffsets)
+      !$acc end host_data
      
-      !$acc parallel loop collapse(2) private(scan_idx,scan_offset) present(nptidx) async(1)
+      !$acc parallel loop collapse(2) private(scan_idx,scan_offset) default(present) async(1)
       DO jj = 1, jpj
          DO ji = 1, jpi
             scan_idx = (jj - 1) * jpi + ji
@@ -483,9 +546,11 @@ CONTAINS
       END DO
       !$acc end parallel loop
      
-      !$acc kernels
+      !$acc kernels async(1)
       npti = scan_idxoffsets(sz)
       !$acc end kernels
+
+      !$acc wait(1)  
 
       !$acc end data
       DEALLOCATE(scan_idxflags)
@@ -493,17 +558,31 @@ CONTAINS
             
    END SUBROUTINE
 
+!!---------------------------------------------------------------------------------------------
+#if 0
+   !! Backup versions of sum_prefix_custom 
+   SUBROUTINE sum_prefix_custom(input, output)
+      INTEGER, INTENT(in) :: input(:)
+      INTEGER, INTENT(out) :: output(:)
+      INTEGER :: i
+  
+      !$acc update host(input)
+      output(1) = input(1) 
+      do i=2,size(input) ; output(i) = output(i - 1) + input(i); enddo 
+      !$acc update device(output)
+   END SUBROUTINE
+
    SUBROUTINE sum_prefix_custom(input, output)
       use cutensorex, only: sum_prefix
       INTEGER, INTENT(in) :: input(:)
       INTEGER, INTENT(out) :: output(:)
-      INTEGER, ALLOCATABLE :: y(:)
       !$acc data present(input,output)
-      !$acc host_data use_device(input, y) 
+      !$acc host_data use_device(input, output) 
       output = SUM_PREFIX(input)
       !$acc end host_data 
       !$acc end data
    END SUBROUTINE
+#endif
 
 END PROGRAM
 
