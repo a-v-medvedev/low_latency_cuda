@@ -29,6 +29,7 @@ PROGRAM SCTEST
 #endif
    call test7(x_, y_)
    call test8(x_, y_)
+   call test9(x_, y_)
   
    !! actual tests 
    ncycles = 10
@@ -51,6 +52,8 @@ PROGRAM SCTEST
    call test7(x_, y_)
    write (*,*) "-- test8:"
    call test8(x_, y_)
+   write (*,*) "-- test9:"
+   call test9(x_, y_)
 
 CONTAINS 
 
@@ -124,11 +127,10 @@ CONTAINS
                if (j>1)  tmp1 = real(z4(j)) / real(z5(j-1))
                if (j>1)  tmp2 = real(z6(j)) / real(z7(j-1))
                if (j>1)  tmp3 = 3.0_dp * real(z8(j)) / real(z9(j-1))
-               z1(j) = int(real(z1(j)) + real(z1(j)) / real(z2(j)) + real(z3(j)) * EXP(-0.1_dp * tmp1) + real(z10(j)) * EXP(-0.1_dp * tmp2) * SQRT(tmp3))
+               z10(j) = int(real(z10(j)) + real(z10(j)) / real(z2(j)) + real(z3(j)) * EXP(-0.1_dp * tmp1) + real(z1(j)) * EXP(-0.1_dp * tmp2) * SQRT(tmp3))
             end do
          END DO
          DO m = 1, ncycles_tab
-            call tab_1d_2d(npti, nptidx, z1, y)
             call tab_1d_2d(npti, nptidx, z2, y)
             call tab_1d_2d(npti, nptidx, z3, y)
             call tab_1d_2d(npti, nptidx, z4, y)
@@ -138,13 +140,15 @@ CONTAINS
             call tab_1d_2d(npti, nptidx, z8, y)
             call tab_1d_2d(npti, nptidx, z9, y)
             call tab_1d_2d(npti, nptidx, z10, y)
+            call tab_1d_2d(npti, nptidx, z1, y)
          END DO
       end do
       call system_clock(count_end)
       if (ncycles /= 1) then
          write (*,*) "npti: ", npti
          write (*,*) "SUM nptidx: ", SUM(nptidx)
-         write (*,*) "L2_NORM z: ", l2_norm(z1)
+         write (*,*) "L2_NORM z: ", l2_norm(z10)
+         write (*,*) "L2_NORM y: ", l2_norm(y)
          write (*,*) "time: ", INT(real(count_end - count_start) / real(count_rate) / ncycles * 1e6)
       endif
       DEALLOCATE(nptidx, z1, z2, z3, z4, z5, z6, z7, z8, z9, z10)
@@ -187,7 +191,8 @@ CONTAINS
       if (ncycles /= 1) then
          write (*,*) "npti: ", npti
          write (*,*) "SUM nptidx: ", SUM(nptidx)
-         write (*,*) "L2_NORM z: ", l2_norm(z1(1:npti))
+         write (*,*) "L2_NORM z: ", l2_norm(z10(1:npti))
+         write (*,*) "L2_NORM y: ", l2_norm(y)
          write (*,*) "time: ", INT(real(count_end - count_start) / real(count_rate) / ncycles * 1e6)
       endif
       DEALLOCATE(nptidx, z1, z2, z3, z4, z5, z6, z7, z8, z9, z10)
@@ -209,7 +214,7 @@ CONTAINS
       nptidx = 0
       z1 = 0; z2 = 0; z3 = 0; z4 = 0; z5 = 0; z6 = 0; z7 = 0; z8 = 0; z9 = 0; z10 = 0;
 
-      !$acc data copyin(x,y) copyout(nptidx,z1) create(z2,z3,z4,z5,z6,z7,z8,z9,z10)
+      !$acc data copy(nptidx,z10,x,y) create(z1,z2,z3,z4,z5,z6,z7,z8,z9)
       call system_clock(count_rate = count_rate)
       call system_clock(count_start)
       do k = 1, ncycles
@@ -233,7 +238,7 @@ CONTAINS
                if (j>1)  tmp1 = real(z4(j)) / real(z5(j-1))
                if (j>1)  tmp2 = real(z6(j)) / real(z7(j-1))
                if (j>1)  tmp3 = 3.0_dp * real(z8(j)) / real(z9(j-1))
-               z1(j) = int(real(z1(j)) + real(z1(j)) / real(z2(j)) + real(z3(j)) * EXP(-0.1_dp * tmp1) + real(z10(j)) * EXP(-0.1_dp * tmp2) * SQRT(tmp3))
+               z10(j) = int(real(z10(j)) + real(z10(j)) / real(z2(j)) + real(z3(j)) * EXP(-0.1_dp * tmp1) + real(z1(j)) * EXP(-0.1_dp * tmp2) * SQRT(tmp3))
             end do
             !$acc end parallel loop
          END DO
@@ -257,25 +262,26 @@ CONTAINS
       if (ncycles /= 1) then
          write (*,*) "npti: ", npti
          write (*,*) "SUM nptidx: ", SUM(nptidx(1:npti))
-         write (*,*) "L2_NORM z: ", l2_norm(z1(1:npti))
+         write (*,*) "L2_NORM z: ", l2_norm(z10(1:npti))
+         write (*,*) "L2_NORM y: ", l2_norm(y)
          write (*,*) "time: ", INT(real(count_end - count_start) / real(count_rate) / ncycles * 1e6)
       endif 
       DEALLOCATE(nptidx, z1, z2, z3, z4, z5, z6, z7, z8, z9, z10)
    END SUBROUTINE
 
 #if defined WITH_CUTENSOREX 
-   ! the GPU version of test1 -- expected to call packloc(), pack() and unpack() from the cutensorex, uses pointer x1d instead of reshape
+   ! the GPU version of test1 -- expected to call packloc(), pack() and unpack() from the cutensorex, uses pointer ll_condition_1d instead of reshape
    SUBROUTINE test4(x, y)
       USE cutensorex, only: pack, unpack, packloc
       REAL(dp), INTENT(in) :: x(:,:)
       REAL(dp), INTENT(out) :: y(:,:)
       LOGICAL, ALLOCATABLE :: ll_condition(:,:)
-      TARGET :: x
+      TARGET :: ll_condition
       INTEGER :: npti
       INTEGER, ALLOCATABLE :: nptidx(:)
       LOGICAL, ALLOCATABLE :: mask(:)
       REAL(dp), ALLOCATABLE :: z1(:), z2(:), z3(:), z4(:), z5(:), z6(:), z7(:), z8(:), z9(:), z10(:)
-      REAL(dp), POINTER :: x1d(:)
+      LOGICAL, POINTER :: ll_condition_1d(:)
       INTEGER :: j, k, m, count_rate, count_start, count_end
       REAL(dp) :: tmp1, tmp2, tmp3
 
@@ -283,13 +289,10 @@ CONTAINS
       allocate(z1(jpi*jpj),z2(jpi*jpj),z3(jpi*jpj),z4(jpi*jpj),z5(jpi*jpj),z6(jpi*jpj),z7(jpi*jpj),z8(jpi*jpj),z9(jpi*jpj),z10(jpi*jpj))       ! largest possible size
       allocate(ll_condition(size(x,1),size(x,2)), source=.false.)
 
-      !$acc data copyin(x,y) copyout(nptidx,z1) create(z2,z3,z4,z5,z6,z7,z8,z9,z10,ll_condition)
-      x1d(1:jpi*jpj) => x(:,:)
-      !$acc kernels
-      ll_condition = .false.
-      !$acc end kernels 
+      !$acc data copy(x,y,nptidx,z10) create(z2,z3,z4,z5,z6,z7,z8,z9,z1,ll_condition)
+      ll_condition_1d(1:jpi*jpj) => ll_condition(:,:)
       !$acc parallel loop gang vector collapse(2)
-      do j=1,size(x,2) ; do k=1,size(x,1) ; if (x(k,j) > threshold) ll_condition(k,j) = .true. ; end do ; end do
+      do j=1,size(x,2) ; do k=1,size(x,1) ; ll_condition(k,j) = (x(k,j) > threshold) ; end do ; end do
       !$acc end parallel loop 
       !!!$acc kernels
       !!where (x > threshold)  ll_condition = .true.
@@ -297,8 +300,8 @@ CONTAINS
       call system_clock(count_rate = count_rate)
       call system_clock(count_start)
       do k = 1, ncycles
-         !$acc host_data use_device(x1d, nptidx)
-         nptidx  = packloc(x1d > threshold, count=npti)
+         !$acc host_data use_device(ll_condition_1d, nptidx)
+         nptidx  = packloc(ll_condition_1d, count=npti)
          !$acc end host_data
          DO m = 1, ncycles_tab
             !$acc host_data use_device(x, y, z1)
@@ -339,7 +342,7 @@ CONTAINS
                if (j>1)  tmp1 = real(z4(j)) / real(z5(j-1))
                if (j>1)  tmp2 = real(z6(j)) / real(z7(j-1))
                if (j>1)  tmp3 = 3.0_dp * real(z8(j)) / real(z9(j-1))
-               z1(j) = int(real(z1(j)) + real(z1(j)) / real(z2(j)) + real(z3(j)) * EXP(-0.1_dp * tmp1) + real(z10(j)) * EXP(-0.1_dp * tmp2) * SQRT(tmp3))
+               z10(j) = int(real(z10(j)) + real(z10(j)) / real(z2(j)) + real(z3(j)) * EXP(-0.1_dp * tmp1) + real(z1(j)) * EXP(-0.1_dp * tmp2) * SQRT(tmp3))
             end do
             !$acc end parallel loop
          END DO
@@ -384,7 +387,8 @@ CONTAINS
       if (ncycles /= 1) then
          write (*,*) "npti: ", npti
          write (*,*) "SUM nptidx: ", SUM(nptidx(1:npti))
-         write (*,*) "L2_NORM z: ", l2_norm(z1(1:npti))
+         write (*,*) "L2_NORM z: ", l2_norm(z10(1:npti))
+         write (*,*) "L2_NORM y: ", l2_norm(y)
          write (*,*) "time: ", INT(real(count_end - count_start) / real(count_rate) / ncycles * 1e6)
       endif 
       DEALLOCATE(nptidx, z1, z2, z3, z4, z5, z6, z7, z8, z9, z10)
@@ -394,25 +398,30 @@ CONTAINS
    SUBROUTINE test5(x, y)
       USE cutensorex, only: pack, packloc
       REAL(dp) :: x(:,:), y(:,:)
-      TARGET :: x
+      LOGICAL, ALLOCATABLE :: ll_condition(:,:)
+      TARGET :: ll_condition
       INTEGER :: npti
       INTEGER, ALLOCATABLE :: nptidx(:)
       LOGICAL, ALLOCATABLE :: mask(:)
       REAL(dp), ALLOCATABLE :: z1(:), z2(:), z3(:), z4(:), z5(:), z6(:), z7(:), z8(:), z9(:), z10(:)
-      INTEGER, POINTER :: x1d(:)
+      LOGICAL, POINTER :: ll_condition_1d(:)
       INTEGER :: j, k, m, count_rate, count_start, count_end
       REAL(dp) :: tmp1, tmp2, tmp3
 
+      allocate(ll_condition(jpi,jpj))
       allocate(nptidx(jpi*jpj))  ! largest possible size
       allocate(z1(jpi*jpj),z2(jpi*jpj),z3(jpi*jpj),z4(jpi*jpj),z5(jpi*jpj),z6(jpi*jpj),z7(jpi*jpj),z8(jpi*jpj),z9(jpi*jpj),z10(jpi*jpj))       ! largest possible size
 
-      !$acc data copyin(x,y) copyout(nptidx,z1) create(z2,z3,z4,z5,z6,z7,z8,z9,z10)
-      x1d(1:jpi*jpj) => x(:,:)
+      !$acc data copy(x,y,nptidx,z10) create(z2,z3,z4,z5,z6,z7,z8,z9,z1,ll_condition)
+      ll_condition_1d(1:jpi*jpj) => ll_condition(:,:)
+      !$acc parallel loop gang vector collapse(2)
+      do j=1,size(x,2) ; do k=1,size(x,1) ; ll_condition(k,j) = (x(k,j) > threshold) ; end do ; end do
+      !$acc end parallel loop 
       call system_clock(count_rate = count_rate)
       call system_clock(count_start)
       do k = 1, ncycles
-         !$acc host_data use_device(x1d, nptidx)
-         nptidx  = packloc(x1d > threshold, count=npti)
+         !$acc host_data use_device(ll_condition_1d, nptidx)
+         nptidx  = packloc(ll_condition_1d, count=npti)
          !$acc end host_data
          DO m = 1, ncycles_tab
             call tab_2d_1d_gpu(npti, nptidx, z1, y)
@@ -433,7 +442,7 @@ CONTAINS
                if (j>1)  tmp1 = real(z4(j)) / real(z5(j-1))
                if (j>1)  tmp2 = real(z6(j)) / real(z7(j-1))
                if (j>1)  tmp3 = 3.0_dp * real(z8(j)) / real(z9(j-1))
-               z1(j) = int(real(z1(j)) + real(z1(j)) / real(z2(j)) + real(z3(j)) * EXP(-0.1_dp * tmp1) + real(z10(j)) * EXP(-0.1_dp * tmp2) * SQRT(tmp3))
+               z10(j) = int(real(z10(j)) + real(z10(j)) / real(z2(j)) + real(z3(j)) * EXP(-0.1_dp * tmp1) + real(z1(j)) * EXP(-0.1_dp * tmp2) * SQRT(tmp3))
             end do
             !$acc end parallel loop
          END DO
@@ -458,35 +467,40 @@ CONTAINS
       if (ncycles /= 1) then
          write (*,*) "npti: ", npti
          write (*,*) "SUM nptidx: ", SUM(nptidx(1:npti))
-         write (*,*) "L2_NORM z: ", l2_norm(z1(1:npti))
+         write (*,*) "L2_NORM z: ", l2_norm(z10(1:npti))
+         write (*,*) "L2_NORM y: ", l2_norm(y)
          write (*,*) "time: ", INT(real(count_end - count_start) / real(count_rate) / ncycles * 1e6)
       endif 
-      DEALLOCATE(nptidx, z1, z2, z3, z4, z5, z6, z7, z8, z9, z10)
+      DEALLOCATE(nptidx, z1, z2, z3, z4, z5, z6, z7, z8, z9, z10, ll_condition)
    END SUBROUTINE
 
    ! variation of test5 -- replace simple GPU versions of tab_*() calls with a single-kernel approach: here we have a complex loop
    ! that calls the devece routines for tab_*(), all in parallel
    SUBROUTINE test6(x, y)
       USE cutensorex, only: pack, packloc
-      INTEGER :: x(:,:), y(:,:)
+      REAL(dp) :: x(:,:), y(:,:)
       TARGET :: x
+      REAL(dp), POINTER :: x1d(:)
       INTEGER :: npti
       INTEGER, ALLOCATABLE :: nptidx(:)
-      INTEGER, ALLOCATABLE :: z1(:), z2(:), z3(:), z4(:), z5(:), z6(:), z7(:), z8(:), z9(:), z10(:)
-      INTEGER, POINTER :: x1d(:)
+      REAL(dp), ALLOCATABLE :: z1(:), z2(:), z3(:), z4(:), z5(:), z6(:), z7(:), z8(:), z9(:), z10(:)
+      LOGICAL, ALLOCATABLE :: ll_condition_1d(:)
       INTEGER :: j, k, m, p, count_rate, count_start, count_end
       REAL(dp) :: tmp1, tmp2, tmp3
 
+      allocate(ll_condition_1d(jpi*jpj),source=.false.)
       allocate(nptidx(jpi*jpj))  ! largest possible size
       allocate(z1(jpi*jpj),z2(jpi*jpj),z3(jpi*jpj),z4(jpi*jpj),z5(jpi*jpj),z6(jpi*jpj),z7(jpi*jpj),z8(jpi*jpj),z9(jpi*jpj),z10(jpi*jpj))       ! largest possible size
-
-      !$acc data copyin(x,y) copyout(nptidx,z1) create(z2,z3,z4,z5,z6,z7,z8,z9,z10)
+     
       x1d(1:jpi*jpj) => x(:,:)
+      do k=1,size(ll_condition_1d); ll_condition_1d(k)=(x1d(k) > threshold); enddo
+
+      !$acc data copy(x,y,ll_condition_1d,nptidx,z10) create(z2,z3,z4,z5,z6,z7,z8,z9,z1)
       call system_clock(count_rate = count_rate)
       call system_clock(count_start)
       do k = 1, ncycles
-         !$acc host_data use_device(x1d, nptidx)
-         nptidx  = packloc(x1d > threshold, count=npti)
+         !$acc host_data use_device(ll_condition_1d, nptidx)
+         nptidx  = packloc(ll_condition_1d, count=npti)
          !$acc end host_data
          DO m = 1, ncycles_tab
             !$acc parallel loop gang(dim:2) vector_length(256) num_gangs(2048) async(1)
@@ -512,7 +526,7 @@ CONTAINS
                if (j>1)  tmp1 = real(z4(j)) / real(z5(j-1))
                if (j>1)  tmp2 = real(z6(j)) / real(z7(j-1))
                if (j>1)  tmp3 = 3.0_dp * real(z8(j)) / real(z9(j-1))
-               z1(j) = int(real(z1(j)) + real(z1(j)) / real(z2(j)) + real(z3(j)) * EXP(-0.1_dp * tmp1) + real(z10(j)) * EXP(-0.1_dp * tmp2) * SQRT(tmp3))
+               z10(j) = int(real(z10(j)) + real(z10(j)) / real(z2(j)) + real(z3(j)) * EXP(-0.1_dp * tmp1) + real(z1(j)) * EXP(-0.1_dp * tmp2) * SQRT(tmp3))
             end do
             !$acc end parallel loop
          END DO
@@ -536,15 +550,18 @@ CONTAINS
          !$acc wait(1)
       end do
       call system_clock(count_end)
+      !! NOTE: the extra copy because the previous copies may overwrite y in random order 
+      call tab_1d_2d_gpu(npti, nptidx, z10, y)
       !$acc end data
 
       if (ncycles /= 1) then
          write (*,*) "npti: ", npti
          write (*,*) "SUM nptidx: ", SUM(nptidx(1:npti))
-         write (*,*) "L2_NORM z: ", l2_norm(z1(1:npti))
+         write (*,*) "L2_NORM z: ", l2_norm(z10(1:npti))
+         write (*,*) "L2_NORM y: ", l2_norm(y)
          write (*,*) "time: ", INT(real(count_end - count_start) / real(count_rate) / ncycles * 1e6)
       endif 
-      DEALLOCATE(nptidx, z1, z2, z3, z4, z5, z6, z7, z8, z9, z10)
+      DEALLOCATE(nptidx, z1, z2, z3, z4, z5, z6, z7, z8, z9, z10, ll_condition_1d)
    END SUBROUTINE
  #endif
 
@@ -561,7 +578,7 @@ CONTAINS
       allocate(nptidx(jpi*jpj))  ! largest possible size
       allocate(z1(jpi*jpj),z2(jpi*jpj),z3(jpi*jpj),z4(jpi*jpj),z5(jpi*jpj),z6(jpi*jpj),z7(jpi*jpj),z8(jpi*jpj),z9(jpi*jpj),z10(jpi*jpj))       ! largest possible size
 
-      !$acc data copyin(x,y) copyout(nptidx,z1) create(z2,z3,z4,z5,z6,z7,z8,z9,z10)
+      !$acc data copy(x,y,nptidx,z10) create(z2,z3,z4,z5,z6,z7,z8,z9,z1)
       call system_clock(count_rate = count_rate)
       call system_clock(count_start)
       do k = 1, ncycles
@@ -590,7 +607,7 @@ CONTAINS
                if (j>1)  tmp1 = real(z4(j)) / real(z5(j-1))
                if (j>1)  tmp2 = real(z6(j)) / real(z7(j-1))
                if (j>1)  tmp3 = 3.0_dp * real(z8(j)) / real(z9(j-1))
-               z1(j) = int(real(z1(j)) + real(z1(j)) / real(z2(j)) + real(z3(j)) * EXP(-0.1_dp * tmp1) + real(z10(j)) * EXP(-0.1_dp * tmp2) * SQRT(tmp3))
+               z10(j) = int(real(z10(j)) + real(z10(j)) / real(z2(j)) + real(z3(j)) * EXP(-0.1_dp * tmp1) + real(z1(j)) * EXP(-0.1_dp * tmp2) * SQRT(tmp3))
             end do
             !$acc end parallel loop
          END DO
@@ -614,41 +631,45 @@ CONTAINS
          !$acc wait(1)
       end do
       call system_clock(count_end)
+      !! NOTE: the extra copy because the previous copies may overwrite y in random order 
+      call tab_1d_2d_gpu(npti, nptidx, z10, y)
       !$acc end data
 
       if (ncycles /= 1) then
          write (*,*) "npti: ", npti
          write (*,*) "SUM nptidx: ", SUM(nptidx(1:npti))
-         write (*,*) "L2_NORM z: ", l2_norm(z1(1:npti))
+         write (*,*) "L2_NORM z: ", l2_norm(z10(1:npti))
+         write (*,*) "L2_NORM y: ", l2_norm(y)
          write (*,*) "time: ", INT(real(count_end - count_start) / real(count_rate) / ncycles * 1e6)
       endif
       DEALLOCATE(nptidx, z1, z2, z3, z4, z5, z6, z7, z8, z9, z10)
    END SUBROUTINE
 
-   ! variation of test7 -- use logical array for calculation kernels instead of compacted 
+   ! variation of test7 -- use logical array for calculation kernels instead of compacted data. Measure only calculation kernels
+   ! time 
    SUBROUTINE test8(x, y)
       REAL(dp) :: x(:,:), y(:,:)
       LOGICAL, ALLOCATABLE :: ll_condition(:,:)
       TARGET :: x
       REAL(dp), ALLOCATABLE :: y1(:,:), y2(:,:), y3(:,:), y4(:,:), y5(:,:), y6(:,:), y7(:,:), y8(:,:), y9(:,:), y10(:,:)
 
-      INTEGER :: j, k, m, p, count_rate, count_start, count_end
+      INTEGER :: j, k, m, p, npti, count_rate, count_start, count_end
       REAL(dp) :: tmp1, tmp2, tmp3
 
       allocate(ll_condition(jpi,jpj))
       allocate(y1(jpi,jpj),y2(jpi,jpj),y3(jpi,jpj),y4(jpi,jpj),y5(jpi,jpj),y6(jpi,jpj),y7(jpi,jpj),y8(jpi,jpj),y9(jpi,jpj),y10(jpi,jpj))
       y1 = y; y2 = y; y3 = y; y4 = y; y5 = y; y6 = y; y7 = y; y8 = y; y9 = y; y10 = y
 
-      !$acc data copy(y1) copyin(x,y2,y3,y4,y5,y6,y7,y8,y9,y10) create(ll_condition)
+      !$acc data copy(y10) copyin(x,y2,y3,y4,y5,y6,y7,y8,y9,y1) create(ll_condition)
+      !$acc parallel loop gang vector collapse(2) async(1)
+      do j=1,size(x,2) ; do k=1,size(x,1) ; ll_condition(k,j) = (x(k,j) > threshold) ; end do ; end do
+      !$acc end parallel loop 
+      !$acc kernels
+      npti = count(ll_condition)
+      !$acc end kernels  
       call system_clock(count_rate = count_rate)
       call system_clock(count_start)
       do p = 1, ncycles
-         !$acc kernels async(1)
-         ll_condition = .false.
-         !$acc end kernels 
-         !$acc parallel loop gang vector collapse(2) async(1)
-         do j=1,size(x,2) ; do k=1,size(x,1) ; if (x(k,j) > threshold) ll_condition(k,j) = .true. ; end do ; end do
-         !$acc end parallel loop 
          DO m = 1, ncycles_tab
             !$acc parallel loop gang vector default(present) private(j,k,tmp1,tmp2,tmp3) collapse(2) async(1)
             do j=1,size(x,2) ; do k=1,size(x,1) 
@@ -657,7 +678,7 @@ CONTAINS
                   if (j>1)  tmp1 = real(y4(k,j)) / real(y5(k,j-1))
                   if (j>1)  tmp2 = real(y6(k,j)) / real(y7(k,j-1))
                   if (j>1)  tmp3 = 3.0_dp * real(y8(k,j)) / real(y9(k,j-1))
-                  y1(k,j) = int(real(y1(k,j)) + real(y1(k,j)) / real(y2(k,j)) + real(y3(k,j)) * EXP(-0.1_dp * tmp1) + real(y10(k,j)) * EXP(-0.1_dp * tmp2) * SQRT(tmp3))
+                  y10(k,j) = int(real(y10(k,j)) + real(y10(k,j)) / real(y2(k,j)) + real(y3(k,j)) * EXP(-0.1_dp * tmp1) + real(y1(k,j)) * EXP(-0.1_dp * tmp2) * SQRT(tmp3))
                endif
             end do; end do
             !$acc end parallel loop
@@ -668,11 +689,91 @@ CONTAINS
       !$acc end data
 
       if (ncycles /= 1) then
+         write (*,*) "npti: ", npti
          write (*,*) "L2_NORM y: ", l2_norm(y1)
-         write (*,*) "time: ", INT(real(count_end - count_start) / real(count_rate) / ncycles * 1e6)
+         write (*,*) "time calc only: ", INT(real(count_end - count_start) / real(count_rate) / ncycles * 1e6)
       endif
       DEALLOCATE(y1, y2, y3, y4, y5, y6, y7, y8, y9, y10, ll_condition)
    END SUBROUTINE
+
+   ! variation of test7 -- original 1d scheme, but measure time for calculation kernels only
+   SUBROUTINE test9(x, y)
+      REAL(dp) :: x(:,:), y(:,:)
+      TARGET :: x
+      INTEGER :: npti
+      INTEGER, ALLOCATABLE :: nptidx(:)
+      REAL(dp), ALLOCATABLE :: z1(:), z2(:), z3(:), z4(:), z5(:), z6(:), z7(:), z8(:), z9(:), z10(:)
+      INTEGER :: j, k, m, p, count_rate, count_start, count_end
+      REAL(dp) :: tmp1, tmp2, tmp3
+
+      allocate(nptidx(jpi*jpj))  ! largest possible size
+      allocate(z1(jpi*jpj),z2(jpi*jpj),z3(jpi*jpj),z4(jpi*jpj),z5(jpi*jpj),z6(jpi*jpj),z7(jpi*jpj),z8(jpi*jpj),z9(jpi*jpj),z10(jpi*jpj))       ! largest possible size
+
+      !$acc data copy(x,y,nptidx,z10) create(z1,z2,z3,z4,z5,z6,z7,z8,z9)
+      call packloc_custom(x, threshold, nptidx, npti)
+      !$acc parallel loop gang(dim:2) num_gangs(2048) async(1)
+      do p=1,10
+      select case(p)
+      case(1)  ; call tab_2d_1d_device(npti, nptidx, z1, y)
+      case(2)  ; call tab_2d_1d_device(npti, nptidx, z2, y)
+      case(3)  ; call tab_2d_1d_device(npti, nptidx, z3, y)
+      case(4)  ; call tab_2d_1d_device(npti, nptidx, z4, y)
+      case(5)  ; call tab_2d_1d_device(npti, nptidx, z5, y)
+      case(6)  ; call tab_2d_1d_device(npti, nptidx, z6, y)
+      case(7)  ; call tab_2d_1d_device(npti, nptidx, z7, y)
+      case(8)  ; call tab_2d_1d_device(npti, nptidx, z8, y)
+      case(9)  ; call tab_2d_1d_device(npti, nptidx, z9, y)
+      case(10) ; call tab_2d_1d_device(npti, nptidx, z10, y)
+      end select
+      end do
+      !$acc wait(1)
+      call system_clock(count_rate = count_rate)
+      call system_clock(count_start)
+      do k = 1, ncycles
+         DO m = 1, ncycles_tab
+            !$acc parallel loop gang vector default(present) private(j,tmp1,tmp2,tmp3) async(1)
+            do j=1,npti
+               tmp1 = 1.0_dp; tmp2 = 2.0_dp; tmp3 = 3.0_dp
+               if (j>1)  tmp1 = real(z4(j)) / real(z5(j-1))
+               if (j>1)  tmp2 = real(z6(j)) / real(z7(j-1))
+               if (j>1)  tmp3 = 3.0_dp * real(z8(j)) / real(z9(j-1))
+               z10(j) = int(real(z10(j)) + real(z10(j)) / real(z2(j)) + real(z3(j)) * EXP(-0.1_dp * tmp1) + real(z1(j)) * EXP(-0.1_dp * tmp2) * SQRT(tmp3))
+            end do
+            !$acc end parallel loop
+         END DO
+         !$acc wait(1)
+      end do
+      call system_clock(count_end)
+      !$acc parallel loop gang(dim:2) num_gangs(2048) async(1)
+      do p=1,10
+      select case(p)
+      case(1)  ; call tab_1d_2d_device(npti, nptidx, z1, y)
+      case(2)  ; call tab_1d_2d_device(npti, nptidx, z2, y)
+      case(3)  ; call tab_1d_2d_device(npti, nptidx, z3, y)
+      case(4)  ; call tab_1d_2d_device(npti, nptidx, z4, y)
+      case(5)  ; call tab_1d_2d_device(npti, nptidx, z5, y)
+      case(6)  ; call tab_1d_2d_device(npti, nptidx, z6, y)
+      case(7)  ; call tab_1d_2d_device(npti, nptidx, z7, y)
+      case(8)  ; call tab_1d_2d_device(npti, nptidx, z8, y)
+      case(9)  ; call tab_1d_2d_device(npti, nptidx, z9, y)
+      case(10) ; call tab_1d_2d_device(npti, nptidx, z10, y)
+      end select
+      end do
+      !$acc wait(1)
+      !! NOTE: the extra copy because the previous copies may overwrite y in random order 
+      call tab_1d_2d_gpu(npti, nptidx, z10, y)
+      !$acc end data
+
+      if (ncycles /= 1) then
+         write (*,*) "npti: ", npti
+         write (*,*) "SUM nptidx: ", SUM(nptidx(1:npti))
+         write (*,*) "L2_NORM z: ", l2_norm(z10(1:npti))
+         write (*,*) "L2_NORM y: ", l2_norm(y)
+         write (*,*) "time calc only: ", INT(real(count_end - count_start) / real(count_rate) / ncycles * 1e6)
+      endif
+      DEALLOCATE(nptidx, z1, z2, z3, z4, z5, z6, z7, z8, z9, z10)
+   END SUBROUTINE
+
 
    SUBROUTINE tab_2d_1d( ndim1d, tab_ind, tab1d, tab2d )
       !!----------------------------------------------------------------------
