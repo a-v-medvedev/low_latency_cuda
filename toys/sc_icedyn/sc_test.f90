@@ -6,14 +6,61 @@ PROGRAM SCTEST
    implicit none
    integer, parameter :: sp = real32
    integer, parameter :: dp = real64
-   INTEGER, PARAMETER :: jpi = 999, jpj = 1899
-   !!INTEGER, PARAMETER :: jpi = 5, jpj = 3
-   INTEGER  :: ncycles = 1, ncycles_tab = 20
-   REAL(dp) :: x_(jpi, jpj), y_(jpi, jpj)
-   INTEGER  :: threshold
+   INTEGER               :: jpi, jpj
+   INTEGER               :: ncycles = 1, ncycles_tab = 20
+   REAL(dp), ALLOCATABLE :: x_(:,:), y_(:,:)
+   INTEGER               :: threshold
+   INTEGER               :: input
 
-   write (*,*) "-- generate"
-   threshold = generate(x_, y_, 6)
+   call get_cmdline_arg(1, input)
+
+   select case (input)
+   case(1) 
+      write (*,*) "-- generate"
+      jpi = 524; jpj = 704
+      allocate(x_(jpi,jpj),y_(jpi,jpj))
+      threshold = generate(x_, y_, 6)
+   case(2)
+      write (*,*) "-- read from file: orca025_idx_135_352__14395.txt" 
+      jpi = 135; jpj = 352
+      allocate(x_(jpi,jpj),y_(jpi,jpj))
+      threshold = read_file(x_, y_, 'orca025_idx_135_352__14395.txt', 14395)
+   case(3)
+      write (*,*) "-- read from file: orca025_idx_364_526__1326.txt" 
+      jpi = 364; jpj = 526
+      allocate(x_(jpi,jpj),y_(jpi,jpj))
+      threshold = read_file(x_, y_, 'orca025_idx_364_526__1326.txt', 1326)
+   case(4)
+      write (*,*) "-- read from file: orca025_idx_364_526__17176.txt" 
+      jpi = 364; jpj = 526
+      allocate(x_(jpi,jpj),y_(jpi,jpj))
+      threshold = read_file(x_, y_, 'orca025_idx_364_526__17176.txt', 17176)
+   case(5)
+      write (*,*) "-- read from file: orca025_idx_364_526__20196.txt" 
+      jpi = 364; jpj = 526
+      allocate(x_(jpi,jpj),y_(jpi,jpj))
+      threshold = read_file(x_, y_, 'orca025_idx_364_526__20196.txt', 20196)
+   case(6)
+      write (*,*) "-- read from file: orca025_idx_364_526__22811.txt" 
+      jpi = 364; jpj = 526
+      allocate(x_(jpi,jpj),y_(jpi,jpj))
+      threshold = read_file(x_, y_, 'orca025_idx_364_526__22811.txt', 22811)
+   case(7)
+      write (*,*) "-- read from file: orca025_idx_364_526__25868.txt" 
+      jpi = 364; jpj = 526
+      allocate(x_(jpi,jpj),y_(jpi,jpj))
+      threshold = read_file(x_, y_, 'orca025_idx_364_526__25868.txt', 25868)
+   case(8)
+      write (*,*) "-- read from file: orca025_idx_364_526__34783.txt" 
+      jpi = 364; jpj = 526
+      allocate(x_(jpi,jpj),y_(jpi,jpj))
+      threshold = read_file(x_, y_, 'orca025_idx_364_526__34783.txt', 34783)
+   case default
+      stop "Unknown input index. Stop."
+   end select
+
+   write (*,*) "jpi: ", jpi
+   write (*,*) "jpj: ", jpj
    write (*,*) "L2_NORM x: ", l2_norm(x_)
    write (*,*) "L2_NORM y: ", l2_norm(y_)
 
@@ -55,7 +102,62 @@ PROGRAM SCTEST
    write (*,*) "-- test9:"
    call test9(x_, y_)
 
+   deallocate(x_, y_)
+
 CONTAINS 
+   subroutine get_cmdline_arg(idx, value)
+      implicit none
+      integer, intent(in)  :: idx
+      integer, intent(out) :: value
+
+      character(len=64) :: arg
+      integer :: ios
+
+      if (command_argument_count() < idx) then
+         value = 1
+      else
+         call get_command_argument(idx, arg)
+
+         read(arg, *, iostat=ios) value
+         if (ios /= 0) stop "Invalid integer argument. Stop."
+      end if
+   end subroutine
+
+   FUNCTION read_file(x, y, file_name, n)
+      REAL(dp)     :: x(:,:), y(:,:)
+      CHARACTER(*) :: file_name
+      INTEGER      :: n
+      REAL(dp) :: read_file
+      INTEGER, ALLOCATABLE :: idx(:)
+      INTEGER      :: ios, i, j, p, npti
+      REAL(dp)     :: thr = 1000.0_dp
+
+      allocate(idx(n))
+
+      open(10, file=file_name, status='old', action='read')
+      read(10, *, iostat=ios) idx
+      if (ios /= 0) then
+         write (*,*) 'File reading error: ', file_name
+         stop "File reading error. Stop."
+      endif
+ 
+      npti = 1
+      do j=1,size(x,2); do i=1,size(x,1)
+         p = (j - 1) * size(x,1) + i
+         if (idx(npti) == p) then
+            x(i,j) = thr + 1.0_dp
+            npti = npti + 1
+         endif
+         y(i,j) = j
+      enddo; enddo
+
+      write (*,*) 'Values in file count=', count(x>thr)
+      write (*,*) 'Success:', (count(x>thr) == n)
+
+      deallocate(idx)
+      read_file = thr 
+   END FUNCTION
+
 
    FUNCTION generate(x, y, n)
       REAL(dp) :: x(:,:), y(:,:)
@@ -551,6 +653,7 @@ CONTAINS
       end do
       call system_clock(count_end)
       !! NOTE: the extra copy because the previous copies may overwrite y in random order 
+      !! This is for having a correct y norm
       call tab_1d_2d_gpu(npti, nptidx, z10, y)
       !$acc end data
 
@@ -632,6 +735,7 @@ CONTAINS
       end do
       call system_clock(count_end)
       !! NOTE: the extra copy because the previous copies may overwrite y in random order 
+      !! This is for having a correct y norm
       call tab_1d_2d_gpu(npti, nptidx, z10, y)
       !$acc end data
 
@@ -761,6 +865,7 @@ CONTAINS
       end do
       !$acc wait(1)
       !! NOTE: the extra copy because the previous copies may overwrite y in random order 
+      !! This is for having a correct y norm
       call tab_1d_2d_gpu(npti, nptidx, z10, y)
       !$acc end data
 
@@ -781,14 +886,14 @@ CONTAINS
       !!----------------------------------------------------------------------
       INTEGER                     , INTENT(in   ) ::   ndim1d   ! 1d size
       INTEGER , DIMENSION(ndim1d) , INTENT(in   ) ::   tab_ind  ! input index
-      REAL(dp), DIMENSION(jpi,jpj), INTENT(in   ) ::   tab2d    ! input 2D field
+      REAL(dp), DIMENSION(:,:), INTENT(in   ) ::   tab2d    ! input 2D field
       REAL(dp), DIMENSION(ndim1d) , INTENT(out) ::   tab1d    ! output 1D field
       !
       INTEGER ::   jn , jid, jjd
       !!----------------------------------------------------------------------
       DO jn = 1, ndim1d
-         jid        = MOD( tab_ind(jn) - 1 , jpi ) + 1
-         jjd        =    ( tab_ind(jn) - 1 ) / jpi + 1
+         jid        = MOD( tab_ind(jn) - 1 , size(tab2d,1) ) + 1
+         jjd        =    ( tab_ind(jn) - 1 ) / size(tab2d,1) + 1
          tab1d( jn) = tab2d( jid, jjd)
       END DO
    END SUBROUTINE tab_2d_1d
@@ -799,15 +904,15 @@ CONTAINS
       !!----------------------------------------------------------------------
       INTEGER                    , INTENT(in   ) ::   ndim1d   ! 1d size
       INTEGER, DIMENSION(ndim1d) , INTENT(in   ) ::   tab_ind  ! input index
-      REAL(dp), DIMENSION(jpi,jpj), INTENT(in   ) ::   tab2d    ! input 2D field
+      REAL(dp), DIMENSION(:,:), INTENT(in   ) ::   tab2d    ! input 2D field
       REAL(dp), DIMENSION(ndim1d) , INTENT(out)   ::   tab1d    ! output 1D field
       !
       INTEGER ::   jn , jid, jjd
       !!----------------------------------------------------------------------
       !$acc parallel loop gang vector default(present) private(jid,jjd) async(1)
       DO jn = 1, ndim1d
-         jid        = MOD( tab_ind(jn) - 1 , jpi ) + 1
-         jjd        =    ( tab_ind(jn) - 1 ) / jpi + 1
+         jid        = MOD( tab_ind(jn) - 1 , size(tab2d,1) ) + 1
+         jjd        =    ( tab_ind(jn) - 1 ) / size(tab2d,1) + 1
          tab1d( jn) = tab2d( jid, jjd)
       END DO
       !$acc end parallel loop
@@ -820,15 +925,15 @@ CONTAINS
       !!----------------------------------------------------------------------
       INTEGER                    , INTENT(in   ) ::   ndim1d   ! 1d size
       INTEGER, DIMENSION(ndim1d) , INTENT(in   ) ::   tab_ind  ! input index
-      REAL(dp), DIMENSION(jpi,jpj), INTENT(in   ) ::   tab2d    ! input 2D field
+      REAL(dp), DIMENSION(:,:), INTENT(in   ) ::   tab2d    ! input 2D field
       REAL(dp), DIMENSION(ndim1d) , INTENT(out)   ::   tab1d    ! output 1D field
       !
       INTEGER ::   jn , jid, jjd
       !!----------------------------------------------------------------------
       !$acc loop gang(dim:1) vector private(jid,jjd)
       DO jn = 1, ndim1d
-         jid        = MOD( tab_ind(jn) - 1 , jpi ) + 1
-         jjd        =    ( tab_ind(jn) - 1 ) / jpi + 1
+         jid        = MOD( tab_ind(jn) - 1 , size(tab2d,1) ) + 1
+         jjd        =    ( tab_ind(jn) - 1 ) / size(tab2d,1) + 1
          tab1d( jn) = tab2d( jid, jjd)
       END DO
       !$acc end loop
@@ -842,13 +947,13 @@ CONTAINS
       INTEGER                     , INTENT(in   ) ::   ndim1d    ! 1D size
       INTEGER, DIMENSION(ndim1d) , INTENT(in   ) ::   tab_ind   ! input index
       REAL(dp), DIMENSION(:) ,      INTENT(in   ) ::   tab1d     ! input 1D field
-      REAL(dp), DIMENSION(jpi,jpj), INTENT(out)   ::   tab2d     ! output 2D field
+      REAL(dp), DIMENSION(:,:), INTENT(out)   ::   tab2d     ! output 2D field
       !
       INTEGER ::   jn , jid, jjd
       !!----------------------------------------------------------------------
       DO jn = 1, ndim1d
-         jid             = MOD( tab_ind(jn) - 1 ,  jpi ) + 1
-         jjd             =    ( tab_ind(jn) - 1 ) / jpi  + 1
+         jid             = MOD( tab_ind(jn) - 1 ,  size(tab2d,1) ) + 1
+         jjd             =    ( tab_ind(jn) - 1 ) / size(tab2d,1)  + 1
          tab2d(jid, jjd) = tab1d( jn)
       END DO
    END SUBROUTINE tab_1d_2d
@@ -861,14 +966,14 @@ CONTAINS
       INTEGER                     , INTENT(in   ) ::   ndim1d    ! 1D size
       INTEGER, DIMENSION(ndim1d) , INTENT(in   ) ::   tab_ind   ! input index
       REAL(dp), DIMENSION(:) ,      INTENT(in   ) ::   tab1d     ! input 1D field
-      REAL(dp), DIMENSION(jpi,jpj), INTENT(out)   ::   tab2d     ! output 2D field
+      REAL(dp), DIMENSION(:,:), INTENT(out)   ::   tab2d     ! output 2D field
       !
       INTEGER ::   jn , jid, jjd
       !!----------------------------------------------------------------------
       !$acc parallel loop gang vector default(present) private(jid,jjd) async(1)
       DO jn = 1, ndim1d
-         jid             = MOD( tab_ind(jn) - 1 ,  jpi ) + 1
-         jjd             =    ( tab_ind(jn) - 1 ) / jpi  + 1
+         jid             = MOD( tab_ind(jn) - 1 ,  size(tab2d,1) ) + 1
+         jjd             =    ( tab_ind(jn) - 1 ) / size(tab2d,1)  + 1
          tab2d(jid, jjd) = tab1d( jn)
       END DO
       !$acc end parallel loop
@@ -883,14 +988,14 @@ CONTAINS
       INTEGER                     , INTENT(in   ) ::   ndim1d    ! 1D size
       INTEGER, DIMENSION(ndim1d) , INTENT(in   ) ::   tab_ind   ! input index
       REAL(dp), DIMENSION(:) ,      INTENT(in   ) ::   tab1d     ! input 1D field
-      REAL(dp), DIMENSION(jpi,jpj), INTENT(out)   ::   tab2d     ! output 2D field
+      REAL(dp), DIMENSION(:,:), INTENT(out)   ::   tab2d     ! output 2D field
       !
       INTEGER ::   jn , jid, jjd
       !!----------------------------------------------------------------------
       !$acc loop gang(dim:1) vector private(jid,jjd)
       DO jn = 1, ndim1d
-         jid             = MOD( tab_ind(jn) - 1 ,  jpi ) + 1
-         jjd             =    ( tab_ind(jn) - 1 ) / jpi  + 1
+         jid             = MOD( tab_ind(jn) - 1 ,  size(tab2d,1) ) + 1
+         jjd             =    ( tab_ind(jn) - 1 ) / size(tab2d,1)  + 1
          tab2d(jid, jjd) = tab1d( jn)
       END DO
       !$acc end loop
