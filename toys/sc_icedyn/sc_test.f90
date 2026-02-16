@@ -97,10 +97,10 @@ PROGRAM SCTEST
 #endif
    write (*,*) "-- test7:"
    call test7(x_, y_)
-   write (*,*) "-- test8:"
-   call test8(x_, y_)
-   write (*,*) "-- test9:"
-   call test9(x_, y_)
+!!   write (*,*) "-- test8:"
+!!   call test8(x_, y_)
+!!   write (*,*) "-- test9:"
+!!   call test9(x_, y_)
 
    deallocate(x_, y_)
 
@@ -233,6 +233,7 @@ CONTAINS
             end do
          END DO
          DO m = 1, ncycles_tab
+            call tab_1d_2d(npti, nptidx, z1, y)
             call tab_1d_2d(npti, nptidx, z2, y)
             call tab_1d_2d(npti, nptidx, z3, y)
             call tab_1d_2d(npti, nptidx, z4, y)
@@ -242,7 +243,6 @@ CONTAINS
             call tab_1d_2d(npti, nptidx, z8, y)
             call tab_1d_2d(npti, nptidx, z9, y)
             call tab_1d_2d(npti, nptidx, z10, y)
-            call tab_1d_2d(npti, nptidx, z1, y)
          END DO
       end do
       call system_clock(count_end)
@@ -605,7 +605,7 @@ CONTAINS
          nptidx  = packloc(ll_condition_1d, count=npti)
          !$acc end host_data
          DO m = 1, ncycles_tab
-            !$acc parallel loop gang(dim:2) vector_length(256) num_gangs(2048) async(1)
+            !$acc parallel loop gang(dim:2) num_gangs(256,10) async(1)
             do p=1,10 
             select case(p)
             case(1)  ; call tab_2d_1d_device(npti, nptidx, z1, y)
@@ -633,7 +633,7 @@ CONTAINS
             !$acc end parallel loop
          END DO
          DO m = 1, ncycles_tab
-         !$acc parallel loop gang(dim:2) vector_length(256) num_gangs(2048) async(1)
+         !$acc parallel loop gang(dim:2) num_gangs(256,10) async(1)
             do p=1,10
             select case(p)
             case(1)  ; call tab_1d_2d_device(npti, nptidx, z1, y)
@@ -687,7 +687,7 @@ CONTAINS
       do k = 1, ncycles
          call packloc_custom(x, threshold, nptidx, npti)
          DO m = 1, ncycles_tab
-            !$acc parallel loop gang(dim:2) num_gangs(2048) async(1)
+            !$acc parallel loop gang(dim:2) num_gangs(256,10) async(1)
             do p=1,10
             select case(p)
             case(1)  ; call tab_2d_1d_device(npti, nptidx, z1, y)
@@ -715,7 +715,7 @@ CONTAINS
             !$acc end parallel loop
          END DO
          DO m = 1, ncycles_tab
-         !$acc parallel loop gang(dim:2) num_gangs(2048) async(1)
+         !$acc parallel loop gang(dim:2) num_gangs(256,10) async(1)
             do p=1,10
             select case(p)
             case(1)  ; call tab_1d_2d_device(npti, nptidx, z1, y)
@@ -815,6 +815,8 @@ CONTAINS
 
       !$acc data copy(x,y,nptidx,z10) create(z1,z2,z3,z4,z5,z6,z7,z8,z9)
       call packloc_custom(x, threshold, nptidx, npti)
+
+
       !$acc parallel loop gang(dim:2) num_gangs(2048) async(1)
       do p=1,10
       select case(p)
@@ -1090,4 +1092,21 @@ CONTAINS
 #endif
 
 END PROGRAM
+
+
+!!#define  TAB_SET_BEGIN(N)   !$acc parallel loop gang(dim:2) num_gangs(256,N) async(1)  \
+!!     do p=1,N \
+!!      select case(p) 
+!!
+!!#define TAB_2D_1D(N, a, b)   case(N)  ; call tab_2d_1d_device(npti, nptidx, a, b)
+!!
+!!#define TAB_SET_END   end select;       end do
+!!
+!!
+!!    TAB_SET_BEGIN(10)
+!!         TAB_2D_1D(1, z1, y)
+!!         TAB_2D_1D(2, z2, y)
+!!
+!!
+!!      TAB_SET_END
 
