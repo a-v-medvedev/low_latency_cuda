@@ -74,7 +74,7 @@ General observations:
 #include "psum.inl.cu"
 
 //#define WITH_THRUST_SCAN
-//#define WITH_CHECK
+#define WITH_CHECK
 #define INITIAL_NCYCLES 10000
 
 auto make_zip_begin(const thrust::counting_iterator<int> &counter, const thrust::device_vector<int> &v) {
