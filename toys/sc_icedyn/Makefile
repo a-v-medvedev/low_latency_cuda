@@ -8,20 +8,24 @@ F90ARCHFLAGS=-acc=gpu -gpu=cc90
 CXXARCHFLAGS=-gencode arch=compute_90,code=sm_90
 LINKARCHFLAGS=-acc=gpu -gpu=cc90
 
-F90OPTFLAGS=-O3     #  -O0 -g 
-CXXOPTFLAGS=-O3     #  -O0
-LINKOPTFLAGS=       #  -g 
+#F90OPTFLAGS=-O3     #  -O0 -g 
+#CXXOPTFLAGS=-O3     #  -O0
+#LINKOPTFLAGS=       #  -g 
+
+F90OPTFLAGS=-O0 -g 
+CXXOPTFLAGS=-O0 -g -G
+LINKOPTFLAGS=-g 
 
 F90GENERICFLAGS=-Mpreprocess -Minfo=accel -module .
-CXXGENERICFLAGS=--x cu
+CXXGENERICFLAGS=--x cu --std=c++20
 LINKGENERICFLAGS=
 
 LINKERLIBS=-lstdc++ -L$(NVHPC_ROOT)/cuda/lib64 -lcudart
 
 # NOTE: comment this out to build a binary that is free from CUTENSOREX
-F90EXTRAFLAGS= -DWITH_CUTENSOREX
-CXXEXTRAFLAGS=
-LINKEXTRALIBS= -cudalib=cutensor
+#F90EXTRAFLAGS= -DWITH_CUTENSOREX
+#CXXEXTRAFLAGS=
+#LINKEXTRALIBS= -cudalib=cutensor
 
 
 all: sc_test

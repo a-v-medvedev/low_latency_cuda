@@ -106,11 +106,13 @@ __device__ void merge_blocks(int tid, int block_size, int block_id, TYPE *output
       output[tid] += addition;
     }
   }
+  __syncthreads();
+  grid.sync();
 }
 
 // note: static assert: threadsPerBlock >= maxBlocksInGrid
 template <typename TYPE, int threadsPerBlock, int maxBlocksInGrid>
-__global__ void inclusive_scan(TYPE *input, TYPE *output, int numElements) {
+__global__ void inclusive_scan(TYPE *input, TYPE *output, int *idx, int numElements, int *npti) {
   int tid = threadIdx.x + blockIdx.x * blockDim.x;
   int chunk_stride = threadsPerBlock * gridDim.x;
   int nchunks = (numElements + chunk_stride - 1) / chunk_stride;
@@ -125,6 +127,17 @@ __global__ void inclusive_scan(TYPE *input, TYPE *output, int numElements) {
   }
   if (nchunks > 1) {
     merge_blocks<TYPE, maxBlocksInGrid>(tid, chunk_stride, -1, output, numElements, nchunks);
+  }
+  if constexpr (std::is_same_v<TYPE, int>) {
+    if (idx) {
+      for (int chunk = 0; chunk < nchunks; chunk++) {
+        int gtid = tid + (chunk * chunk_stride);
+        if (gtid < numElements) {
+          if (input[gtid] != 0) idx[output[gtid]] = gtid;
+        }
+      }
+      if (threadIdx.x + blockIdx.x == 0) *npti = output[numElements - 1]; 
+    }
   }
 }
 
@@ -143,7 +156,7 @@ __global__ void inclusive_scan_small(TYPE *input, TYPE *output, int numElements)
 
 // Assumed gridDim.x == 1
 template <typename TYPE, int threadsPerBlock>
-__global__ void inclusive_scan_one_block(TYPE *input, TYPE *output, int numElements) {
+__global__ void inclusive_scan_one_block(TYPE *input, TYPE *output, int *idx, int numElements, int *npti) {
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
     int chunk_stride = threadsPerBlock;
     int nchunks = (numElements + chunk_stride - 1) / chunk_stride;
@@ -153,12 +166,14 @@ __global__ void inclusive_scan_one_block(TYPE *input, TYPE *output, int numEleme
 
       TYPE val = input[gtid] + (threadIdx.x ? 0 : addition);
       TYPE result = block_scan<TYPE,threadsPerBlock>(val);
-      if (tid < numElements) {
+      if (gtid < numElements) {
         output[gtid] = result + val;
+        if constexpr (std::is_same_v<TYPE, int>) if (idx && input[gtid]) idx[output[gtid]] = gtid;  
       }
       __syncthreads();
       if (chunk != nchunks - 1)
         addition = output[(chunk + 1) * chunk_stride - 1];
    }
+   if constexpr (std::is_same_v<TYPE, int>) if (threadIdx.x == 0) *npti = output[numElements - 1];
 }
 

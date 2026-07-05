@@ -1,5 +1,7 @@
 !! nvfortran -cuda -acc=gpu -O3 -o sc_test sc_test.f90 -cudalib=cutensor
 
+#define PACKLOC_CUSTOM packloc_custom_new
+
 PROGRAM SCTEST
    use iso_fortran_env, only : real32, real64
    use print_norms
@@ -74,9 +76,9 @@ PROGRAM SCTEST
    call test5(x_,y_)
    call test6(x_, y_)
 #endif
-   call test7(x_, y_)
-   call test8(x_, y_)
-   call test9(x_, y_)
+!!   call test7(x_, y_)
+!!   call test8(x_, y_)
+!!   call test9(x_, y_)
   
    !! actual tests 
    ncycles = 10
@@ -95,8 +97,8 @@ PROGRAM SCTEST
    write (*,*) "-- test6:"
    call test6(x_, y_)
 #endif
-   write (*,*) "-- test7:"
-   call test7(x_, y_)
+!!   write (*,*) "-- test7:"
+!!   call test7(x_, y_)
 !!   write (*,*) "-- test8:"
 !!   call test8(x_, y_)
 !!   write (*,*) "-- test9:"
@@ -320,7 +322,7 @@ CONTAINS
       call system_clock(count_rate = count_rate)
       call system_clock(count_start)
       do k = 1, ncycles
-         call packloc_custom(x, threshold, nptidx, npti)
+         call PACKLOC_CUSTOM(x, threshold, nptidx, npti)
          DO m = 1, ncycles_tab
             call tab_2d_1d_gpu(npti, nptidx, z1, y)
             call tab_2d_1d_gpu(npti, nptidx, z2, y)
@@ -685,7 +687,7 @@ CONTAINS
       call system_clock(count_rate = count_rate)
       call system_clock(count_start)
       do k = 1, ncycles
-         call packloc_custom(x, threshold, nptidx, npti)
+         call PACKLOC_CUSTOM(x, threshold, nptidx, npti)
          DO m = 1, ncycles_tab
             !$acc parallel loop gang(dim:2) num_gangs(256,10) async(1)
             do p=1,10
@@ -814,7 +816,7 @@ CONTAINS
       allocate(z1(jpi*jpj),z2(jpi*jpj),z3(jpi*jpj),z4(jpi*jpj),z5(jpi*jpj),z6(jpi*jpj),z7(jpi*jpj),z8(jpi*jpj),z9(jpi*jpj),z10(jpi*jpj))       ! largest possible size
 
       !$acc data copy(x,y,nptidx,z10) create(z1,z2,z3,z4,z5,z6,z7,z8,z9)
-      call packloc_custom(x, threshold, nptidx, npti)
+      call PACKLOC_CUSTOM(x, threshold, nptidx, npti)
 
 
       !$acc parallel loop gang(dim:2) num_gangs(2048) async(1)
@@ -1003,7 +1005,7 @@ CONTAINS
       !$acc end loop
    END SUBROUTINE tab_1d_2d_device
 
-   SUBROUTINE packloc_custom(x, threshold, nptidx, npti)
+   SUBROUTINE packloc_custom_old(x, threshold, nptidx, npti)
       USE sum_prefix_custom, only: sum_prefix_custom
       REAL(dp), INTENT(in) :: x(:,:)
       INTEGER, INTENT(in) :: threshold
@@ -1063,6 +1065,52 @@ CONTAINS
       DEALLOCATE(scan_idxflags)
       DEALLOCATE(scan_idxoffsets)
             
+   END SUBROUTINE
+
+   SUBROUTINE packloc_custom_new(x, threshold, nptidx, npti)
+      USE sum_prefix_custom, only: packloc_custom
+      REAL(dp), INTENT(in) :: x(:,:)
+      INTEGER, INTENT(in) :: threshold
+      INTEGER, INTENT(inout) :: nptidx(:)
+      INTEGER, INTENT(inout) :: npti 
+      !! FIXME can we have scan_idxflags as a logical array, not integer?
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: scan_idxflags
+      !! FIXME can we avoid allocation of this array?
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: scan_idxoffsets
+      INTEGER :: scan_idx
+      INTEGER :: sz, jpi, jpj, ji, jj
+
+      npti = 0 
+      sz = size(x)
+      jpi = size(x, 1)
+      jpj = size(x, 2)
+
+      ALLOCATE(scan_idxflags(sz))
+      ALLOCATE(scan_idxoffsets(sz))
+      !$acc data create(scan_idxflags,scan_idxoffsets)
+      
+      !$acc parallel loop collapse(2) private(scan_idx) present(x) async(1)
+      DO jj = 1, jpj
+         DO ji = 1, jpi
+           scan_idx = (jj - 1) * jpi + ji
+           IF ( x(ji,jj) > threshold ) THEN
+              scan_idxflags(scan_idx) = 1
+           else  
+              scan_idxflags(scan_idx) = 0
+           ENDIF
+         END DO
+      END DO
+      !$acc end parallel loop
+
+      !$acc host_data use_device(scan_idxflags, scan_idxoffsets, nptidx)
+      CALL packloc_custom(scan_idxflags, scan_idxoffsets, nptidx, npti)
+      !$acc end host_data
+     
+      !$acc wait(1)  
+
+      !$acc end data
+      DEALLOCATE(scan_idxflags)
+      DEALLOCATE(scan_idxoffsets)
    END SUBROUTINE
 
 !!---------------------------------------------------------------------------------------------
