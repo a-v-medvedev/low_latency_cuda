@@ -36,95 +36,38 @@ __device__ TYPE block_scan(int in) {
   return thread_out_element;
 }
 
-/*
-template <typename TYPE>
-__device__ void merge_blocks_small(int tid, int block_size, int block_id, int nblocks, TYPE *output, int numElements) {
-  // postprocessing: merge of scan results for multiple blocks
-  namespace cg = cooperative_groups;
-  cg::grid_group grid = cg::this_grid();
-  // round up the nblocks to power of two
-  nblocks--; nblocks |= nblocks >> 1; nblocks |= nblocks >> 2; nblocks |= nblocks >> 4; nblocks |= nblocks >> 8; nblocks++;
-  // we divide all blocks into groups
-  // and we gradually increase the size of the group from just 2 blocks to 
-  // nblocks (means: all blocks in a single group)
-  for (int group_size = 2; group_size <= nblocks; group_size *= 2) {
-    grid.sync();
-    if (tid < numElements) {
-      int half_group_size = group_size / 2; 
-      // what is the position of this block in a group?
-      int position_in_group = block_id % group_size;
-      // all elements in the second half of the group get an addition equal to the value of 
-      // the last element of the first half of the group
-      if (position_in_group >= half_group_size) {
-        // idx of an an element just before 2nd half of the group start 
-        int idx_of_addition = (block_id - position_in_group + half_group_size) * block_size - 1;
-        output[tid] += output[idx_of_addition];
-      }
-    }
-  }
-}
-*/
-
-// Merge up to maxBlocksInGrid number of blocks, each block is threadsPerBlock size
+// Merge up to maxBlocksInGrid number of blocks, each block is threadsPerBlock size (block_size == threadsPerBlock)
+// Or: if block_id == -1, merge large chunks sequentially
 template <typename TYPE, int threadsPerBlock, int maxBlocksInGrid>
-__device__ void merge_blocks(int tid, int block_id, TYPE *output, int offset, int numElements) {
-  __shared__ TYPE sdata[maxBlocksInGrid];
-  int gtid = offset + tid;
-  // postprocessing: merge of scan results for multiple blocks
-  namespace cg = cooperative_groups;
-  cg::grid_group grid = cg::this_grid();
-  grid.sync();
-  TYPE addition = 0;
-  // pre-load into shared memory the values of all elements of the preceding blocks
-  if (threadIdx.x < maxBlocksInGrid) {
-    int idx_of_addition = (threadIdx.x + 1) * threadsPerBlock - 1;
-    if (offset + idx_of_addition < numElements) 
-      sdata[threadIdx.x] = output[offset + idx_of_addition];
-  }
-  __syncthreads();
-  grid.sync();
-  if (gtid < numElements && block_id) {
-    // go through the last-elmenet values of all preceding blocks, 
-    // make a sum and add it to ours value
-    for (int b = 0; b < block_id; b++)
-      addition += sdata[b];
-    output[gtid] += addition;
-  }
-  __syncthreads();
-  grid.sync();
-}
-
-// Special case when blocks are so big that we handle them sequentially as "chunks"
-// Chunk size is assumed to be equal to block_size (and we can't have more than maxBlocksInGrid blocks!)
-template <typename TYPE, int maxBlocksInGrid>
-__device__ void merge_final(int tid, int block_size, TYPE *output, int numElements, int nchunks) {
+__device__ void merge_blocks(int tid, int block_id, int block_size, TYPE *output, int offset, int numElements, int nchunks = 0) {
   __shared__ TYPE sdata[maxBlocksInGrid];
   // postprocessing: merge of scan results for multiple blocks
   namespace cg = cooperative_groups;
   cg::grid_group grid = cg::this_grid();
-  TYPE addition = 0;
-  // pre-load into shared memory the values of all elements of the preceding blocks
-  if (threadIdx.x < maxBlocksInGrid) {
-    int idx_of_addition = (threadIdx.x + 1) * block_size - 1;
-    if (idx_of_addition < numElements) 
-      sdata[threadIdx.x] = output[idx_of_addition];
+  grid.sync();
+  TYPE addition = 0, value = 0;
+  int idx_of_addition = (threadIdx.x + 1) * block_size - 1;
+  if (threadIdx.x < maxBlocksInGrid && offset + idx_of_addition < numElements) {
+    value = output[offset + idx_of_addition];
+  }
+  addition = block_scan<TYPE,threadsPerBlock>(value);
+  if (block_id == -1) {
+    if (threadIdx.x < maxBlocksInGrid) sdata[threadIdx.x] = addition + value;
+  } else {
+    if (threadIdx.x == block_id) sdata[0] = addition;
   }
   __syncthreads();
-  grid.sync();
-  // Assume block size is as big as a total number of threads, so we 
-  // have to handle blocks (let's call them "chunks") sequentially
-  for (int chunk = 1; chunk < nchunks; chunk++) {
-    int gtid = tid + chunk * block_size;
-    if (gtid < numElements) {
-      addition = 0;
-      // go through the last-elmenet values of all preceding chunks, 
-      // make a sum and add it to ours value
-      for (int b = 0; b < chunk; b++)
-        addition += sdata[b];
-      output[gtid] += addition;
+  if (block_id == -1) {
+    for (int chunk = 1; chunk < nchunks; chunk++) {
+      int gtid = tid + chunk * block_size;
+      addition = sdata[chunk-1];
+      if (gtid < numElements) output[gtid] += addition;
     }
+  } else {
+    addition = sdata[0];
+    int gtid = offset + tid;
+    if (block_id && gtid < numElements) output[gtid] += addition;
   }
-  __syncthreads();
   grid.sync();
 }
 
@@ -144,10 +87,10 @@ __global__ void inclusive_scan(TYPE *input, TYPE *output, int *idx, int numEleme
     if (gtid < numElements) {
       output[gtid] = result + val;
     }
-    merge_blocks<TYPE, threadsPerBlock, maxBlocksInGrid>(tid, blockIdx.x, output, chunk * chunk_stride, numElements);
+    merge_blocks<TYPE, threadsPerBlock, maxBlocksInGrid>(tid, blockIdx.x, threadsPerBlock, output, chunk * chunk_stride, numElements);
   }
   if (nchunks > 1) {
-    merge_final<TYPE, maxBlocksInGrid>(tid, chunk_stride, output, numElements, nchunks);
+    merge_blocks<TYPE, threadsPerBlock, maxBlocksInGrid>(tid, -1, chunk_stride, output, 0, numElements, nchunks);
   }
   if constexpr (std::is_same_v<TYPE, int>) {
     if (idx) {
@@ -161,19 +104,6 @@ __global__ void inclusive_scan(TYPE *input, TYPE *output, int *idx, int numEleme
     }
   }
 }
-
-/*
-template <typename TYPE, int threadsPerBlock>
-__global__ void inclusive_scan_small(TYPE *input, TYPE *output, int numElements) {
-    int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    TYPE val = input[tid];
-    TYPE result = block_scan<TYPE,threadsPerBlock>(val);
-    if (tid < numElements) {
-      output[tid] = result + val;
-    }
-    merge_blocks_small<TYPE>(tid, threadsPerBlock, blockIdx.x, gridDim.x, output, numElements);
-}
-*/
 
 // Assumed gridDim.x == 1
 template <typename TYPE, int threadsPerBlock>
