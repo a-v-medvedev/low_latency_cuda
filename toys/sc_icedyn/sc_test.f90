@@ -76,7 +76,7 @@ PROGRAM SCTEST
    call test5(x_,y_)
    call test6(x_, y_)
 #endif
-!!   call test7(x_, y_)
+   call test7(x_, y_)
 !!   call test8(x_, y_)
 !!   call test9(x_, y_)
   
@@ -97,8 +97,8 @@ PROGRAM SCTEST
    write (*,*) "-- test6:"
    call test6(x_, y_)
 #endif
-!!   write (*,*) "-- test7:"
-!!   call test7(x_, y_)
+   write (*,*) "-- test7:"
+   call test7(x_, y_)
 !!   write (*,*) "-- test8:"
 !!   call test8(x_, y_)
 !!   write (*,*) "-- test9:"

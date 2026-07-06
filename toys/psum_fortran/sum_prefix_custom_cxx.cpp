@@ -6,7 +6,7 @@
 #include <semaphore>
 #include <atomic>
 
-#include "../../psum/psum.inl.cu"
+#include "psum.inl.cu"
 
 #define PTRCAST(ptr, type) thrust::device_ptr<type>(ptr)
 
@@ -50,7 +50,6 @@ void scan_wrapper_cxx(TYPE *input, TYPE *output, int numElements, void *stream_v
 // NOTE: async GPU kernels execution, expected to sync the stream outside
 template <typename TYPE>
 int packloc_wrapper_cxx(TYPE *input, TYPE *output, int *idx, int numElements, void *stream_void) { 
-  printf(">> numElements=%d\n", numElements);
   cudaStream_t stream = reinterpret_cast<cudaStream_t>(stream_void); 
   const int threadsPerBlock = 1024; 
   const int maxBlocksInGrid = 256; 

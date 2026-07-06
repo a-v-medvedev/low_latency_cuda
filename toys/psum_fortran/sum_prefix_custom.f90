@@ -42,7 +42,7 @@ module sum_prefix_custom
    function packloc_int_wrapper(input, output, idx, N, stream) bind(C, name="packloc_int_wrapper")
       use iso_c_binding
       use openacc
-      integer(c_int), value :: packloc_int_wrapper
+      integer(c_int)             :: packloc_int_wrapper
       integer(c_int) DEVICE_ATTR :: input(*)
       integer(c_int) DEVICE_ATTR :: output(*)
       integer(c_int) DEVICE_ATTR :: idx(*)
