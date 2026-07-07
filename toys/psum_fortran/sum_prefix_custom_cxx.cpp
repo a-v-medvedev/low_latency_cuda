@@ -29,19 +29,19 @@ void scan_wrapper_cxx(TYPE *input, TYPE *output, int numElements, void *stream_v
     const int maxBlocksInGrid = 256; 
     int numBlocks = (numElements + threadsPerBlock - 1) / threadsPerBlock; 
     if (numBlocks < 7) { 
-      inclusive_scan_one_block<TYPE,TYPE,threadsPerBlock><<<1,threadsPerBlock,0,stream>>>(input, output, numElements); 
+      inclusive_scan_one_block<TYPE,threadsPerBlock><<<1,threadsPerBlock,0,stream>>>(input, output, numElements); 
     } else { 
         if (!maxNumBlocksPerDevice) { 
           cudaDeviceProp deviceProp; 
           cudaGetDeviceProperties(&deviceProp, 0); 
           int numBlocksPerSm = 0; 
-          cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, inclusive_scan<TYPE,TYPE,threadsPerBlock,maxBlocksInGrid>, threadsPerBlock, 0); 
+          cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, inclusive_scan<TYPE,threadsPerBlock,maxBlocksInGrid>, threadsPerBlock, 0); 
           maxNumBlocksPerDevice = deviceProp.multiProcessorCount * numBlocksPerSm; 
         } 
         int maxNumBlocks = std::min(maxNumBlocksPerDevice, maxBlocksInGrid); 
         numBlocks = std::min(numBlocks, maxNumBlocks); 
         void *args[] = {&input, &output, &numElements}; 
-        cudaLaunchCooperativeKernel((void *)inclusive_scan<TYPE,TYPE,threadsPerBlock,maxBlocksInGrid>, numBlocks, threadsPerBlock, args, 0, stream); 
+        cudaLaunchCooperativeKernel((void *)inclusive_scan<TYPE,threadsPerBlock,maxBlocksInGrid>, numBlocks, threadsPerBlock, args, 0, stream); 
     } 
   } 
 }
