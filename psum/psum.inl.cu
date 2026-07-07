@@ -36,39 +36,40 @@ __device__ TYPE block_scan(int in) {
   return thread_out_element;
 }
 
-// Merge up to maxBlocksInGrid number of blocks, each block is threadsPerBlock size (block_size == threadsPerBlock)
-// Or: if block_id == -1, merge large chunks sequentially
-template <typename TYPE, int threadsPerBlock, int maxBlocksInGrid>
-__device__ void merge_blocks(int tid, int block_id, int block_size, TYPE *output, int offset, int numElements, int nchunks = 0) {
-  __shared__ TYPE sdata[maxBlocksInGrid];
-  // postprocessing: merge of scan results for multiple blocks
+// Merge as much separate sequential blocks as we have CUDA blocks in the 
+// execution grid. We can't merge more in one shot as it is a limitation
+// of cooperative groups API we use for barrier syncing.
+// 
+// We are also aware that we may go through the whole array in sequential
+// chunks, so we mind the offset and the max value of a previous chunk
+// if the offset is not 0.
+template <typename TYPE, int threadsPerBlock>
+__device__ void merge_blocks(int tid, TYPE *output, int offset, int numElements) {
+  __shared__ TYPE sdata[1];
   namespace cg = cooperative_groups;
   cg::grid_group grid = cg::this_grid();
   grid.sync();
-  TYPE addition = 0, value = 0;
-  int idx_of_addition = (threadIdx.x + 1) * block_size - 1;
-  if (threadIdx.x < maxBlocksInGrid && offset + idx_of_addition < numElements) {
-    value = output[offset + idx_of_addition];
-  }
-  addition = block_scan<TYPE,threadsPerBlock>(value);
-  if (block_id == -1) {
-    if (threadIdx.x < maxBlocksInGrid) sdata[threadIdx.x] = addition + value;
-  } else {
-    if (threadIdx.x == block_id) sdata[0] = addition;
-  }
-  __syncthreads();
-  if (block_id == -1) {
-    for (int chunk = 1; chunk < nchunks; chunk++) {
-      int gtid = tid + chunk * block_size;
-      addition = sdata[chunk-1];
-      if (gtid < numElements) output[gtid] += addition;
+  int gtid = offset + tid;
+  TYPE addition = 0;
+  if (blockIdx.x) {
+    TYPE value = 0;
+    int idx_of_addition = (threadIdx.x + 1) * threadsPerBlock - 1;
+    if (offset + idx_of_addition < numElements) {
+      value = output[offset + idx_of_addition];
     }
-  } else {
+    addition = block_scan<TYPE,threadsPerBlock>(value);
+    if (threadIdx.x == blockIdx.x) {
+      sdata[0] = addition;
+    }
+    __syncthreads();
     addition = sdata[0];
-    int gtid = offset + tid;
-    if (block_id && gtid < numElements) output[gtid] += addition;
   }
   grid.sync();
+  if (gtid < numElements) {
+    TYPE addition_from_prev_chunk = 0;
+    if (offset) addition_from_prev_chunk = output[offset - 1];
+    output[gtid] += addition + addition_from_prev_chunk;
+  }
 }
 
 // note: static assert: threadsPerBlock >= maxBlocksInGrid
@@ -87,10 +88,7 @@ __global__ void inclusive_scan(TYPE *input, TYPE *output, int *idx, int numEleme
     if (gtid < numElements) {
       output[gtid] = result + val;
     }
-    merge_blocks<TYPE, threadsPerBlock, maxBlocksInGrid>(tid, blockIdx.x, threadsPerBlock, output, chunk * chunk_stride, numElements);
-  }
-  if (nchunks > 1) {
-    merge_blocks<TYPE, threadsPerBlock, maxBlocksInGrid>(tid, -1, chunk_stride, output, 0, numElements, nchunks);
+    merge_blocks<TYPE, threadsPerBlock>(tid, output, chunk * chunk_stride, numElements);
   }
   if constexpr (std::is_same_v<TYPE, int>) {
     if (idx) {

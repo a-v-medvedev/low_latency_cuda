@@ -117,8 +117,6 @@ int test(const unsigned int N) {
 #if !defined WITH_THRUST_SCAN
   {
       const int threadsPerBlock = 1024; 
-      static int maxNumBlocksPerDevice = 0;
-      const int maxBlocksPerGrid = 256; 
       int numBlocks = (N + threadsPerBlock - 1) / threadsPerBlock;
       if (numBlocks < 7) {
         for (int j = 0; j < ncycles; j++) {
@@ -129,6 +127,8 @@ int test(const unsigned int N) {
       //    cudaLaunchCooperativeKernel((void *)inclusive_scan_small<int,threadsPerBlock>, numBlocks, threadsPerBlock, args, 0, 0);
       //  }
       } else {
+        static int maxNumBlocksPerDevice = 0;
+        const int maxBlocksPerGrid = 256; 
         if (!maxNumBlocksPerDevice) {
           cudaDeviceProp deviceProp;
           cudaGetDeviceProperties(&deviceProp, 0);
