@@ -29,27 +29,26 @@ void scan_wrapper_cxx(TYPE *input, TYPE *output, int numElements, void *stream_v
     const int maxBlocksInGrid = 256; 
     int numBlocks = (numElements + threadsPerBlock - 1) / threadsPerBlock; 
     if (numBlocks < 7) { 
-      inclusive_scan_one_block<TYPE,threadsPerBlock><<<1,threadsPerBlock,0,stream>>>(input, output, 0, numElements, 0); 
+      inclusive_scan_one_block<TYPE,TYPE,threadsPerBlock><<<1,threadsPerBlock,0,stream>>>(input, output, numElements); 
     } else { 
         if (!maxNumBlocksPerDevice) { 
           cudaDeviceProp deviceProp; 
           cudaGetDeviceProperties(&deviceProp, 0); 
           int numBlocksPerSm = 0; 
-          cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, inclusive_scan<TYPE,threadsPerBlock,maxBlocksInGrid>, threadsPerBlock, 0); 
+          cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, inclusive_scan<TYPE,TYPE,threadsPerBlock,maxBlocksInGrid>, threadsPerBlock, 0); 
           maxNumBlocksPerDevice = deviceProp.multiProcessorCount * numBlocksPerSm; 
         } 
         int maxNumBlocks = std::min(maxNumBlocksPerDevice, maxBlocksInGrid); 
         numBlocks = std::min(numBlocks, maxNumBlocks); 
-        int *idx = 0, *npti = 0;
-        void *args[] = {&input, &output, &idx, &numElements, &npti}; 
-        cudaLaunchCooperativeKernel((void *)inclusive_scan<TYPE,threadsPerBlock,maxBlocksInGrid>, numBlocks, threadsPerBlock, args, 0, stream); 
+        void *args[] = {&input, &output, &numElements}; 
+        cudaLaunchCooperativeKernel((void *)inclusive_scan<TYPE,TYPE,threadsPerBlock,maxBlocksInGrid>, numBlocks, threadsPerBlock, args, 0, stream); 
     } 
   } 
 }
 
 // NOTE: async GPU kernels execution, expected to sync the stream outside
-template <typename TYPE>
-int packloc_wrapper_cxx(TYPE *input, TYPE *output, int *idx, int numElements, void *stream_void) { 
+template <typename TYPEIN, typename TYPEOUT>
+int packloc_wrapper_cxx(TYPEIN *input, TYPEOUT *idx, int numElements, void *stream_void) { 
   cudaStream_t stream = reinterpret_cast<cudaStream_t>(stream_void); 
   const int threadsPerBlock = 1024; 
   const int maxBlocksInGrid = 256; 
@@ -65,19 +64,19 @@ int packloc_wrapper_cxx(TYPE *input, TYPE *output, int *idx, int numElements, vo
   int *my_npti_dev = &nptis_dev[my_npti_idx];
   int numBlocks = (numElements + threadsPerBlock - 1) / threadsPerBlock;
   if (numBlocks < 7) { 
-    inclusive_scan_one_block<TYPE,threadsPerBlock><<<1,threadsPerBlock,0,stream>>>(input, output, idx, numElements, my_npti_dev); 
+    packloc_one_block<TYPEIN,TYPEOUT,threadsPerBlock><<<1,threadsPerBlock,0,stream>>>(input, idx, my_npti_dev, numElements); 
   } else { 
     if (!maxNumBlocksPerDevice) { 
       cudaDeviceProp deviceProp; 
       cudaGetDeviceProperties(&deviceProp, 0); 
       int numBlocksPerSm = 0; 
-      cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, inclusive_scan<TYPE,threadsPerBlock,maxBlocksInGrid>, threadsPerBlock, 0); 
+      cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, packloc<TYPEIN,TYPEOUT,threadsPerBlock,maxBlocksInGrid>, threadsPerBlock, 0); 
       maxNumBlocksPerDevice = deviceProp.multiProcessorCount * numBlocksPerSm; 
     } 
     int maxNumBlocks = std::min(maxNumBlocksPerDevice, maxBlocksInGrid); 
     numBlocks = std::min(numBlocks, maxNumBlocks); 
-    void *args[] = {&input, &output, &idx, &numElements, &my_npti_dev}; 
-    cudaLaunchCooperativeKernel((void *)inclusive_scan<TYPE,threadsPerBlock,maxBlocksInGrid>, numBlocks, threadsPerBlock, args, 0, stream); 
+    void *args[] = {&input, &idx, &my_npti_dev, &numElements}; 
+    cudaLaunchCooperativeKernel((void *)packloc<TYPEIN,TYPEOUT,threadsPerBlock,maxBlocksInGrid>, numBlocks, threadsPerBlock, args, 0, stream); 
   }
   int npti = nptis[my_npti_idx]; 
   concurrent_calls_counter--;
@@ -89,9 +88,9 @@ void scan_##TYPE##_wrapper(TYPE *input, TYPE *output, int numElements, void *str
   scan_wrapper_cxx<TYPE>(input, output, numElements, stream_void); \
 }
 
-#define DECLARE_PACKLOC_WRAPPER(TYPE) \
-int packloc_##TYPE##_wrapper(TYPE *input, TYPE *output, int *idx, int numElements, void *stream_void) { \
-  return packloc_wrapper_cxx<TYPE>(input, output, idx, numElements, stream_void); \
+#define DECLARE_PACKLOC_WRAPPER(TYPEIN,TYPEOUT) \
+int packloc_##TYPEIN##_##TYPEOUT##_wrapper(TYPEIN *input, TYPEOUT *idx, int numElements, void *stream_void) { \
+  return packloc_wrapper_cxx<TYPEIN,TYPEOUT>(input, idx, numElements, stream_void); \
 }
 
 extern "C" {
@@ -101,6 +100,6 @@ DECLARE_SCAN_WRAPPER(double)
 }
 
 extern "C" {
-DECLARE_PACKLOC_WRAPPER(int)
+DECLARE_PACKLOC_WRAPPER(char,int)
 }
 

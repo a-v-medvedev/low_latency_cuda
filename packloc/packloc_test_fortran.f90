@@ -104,31 +104,15 @@ CONTAINS
        LOGICAL, INTENT(in)  :: condition(:)
        INTEGER, INTENT(out) :: y(:)
        INTEGER, INTENT(out) :: n
-       !! FIXME can we have scan_idxflags as a logical array, not integer?
-       INTEGER, ALLOCATABLE, DIMENSION(:), SAVE :: scan_idxflags
-       !! FIXME can we avoid allocation of this array?
-       INTEGER, ALLOCATABLE, DIMENSION(:), SAVE :: scan_idxoffsets
        INTEGER :: sz, i
  
        n = 0
        sz = size(condition)
-       ALLOCATE(scan_idxflags(sz),source=0)
-       ALLOCATE(scan_idxoffsets(sz),source=0)
-       !$acc data create(scan_idxflags,scan_idxoffsets)
- 
-       !$acc parallel loop default(present) async(1)
-       do i=1,sz; if (condition(i)) scan_idxflags=1; enddo
-       !$acc end parallel loop  
- 
-       !$acc host_data use_device(scan_idxflags, scan_idxoffsets, y)
-       CALL packloc_custom(scan_idxflags, scan_idxoffsets, y, n)
+       !$acc host_data use_device(condition, y)
+       CALL packloc_custom(condition, y, n)
        !$acc end host_data
  
        !$acc wait(1)  
- 
-       !$acc end data
-       DEALLOCATE(scan_idxflags)
-       DEALLOCATE(scan_idxoffsets)
     END SUBROUTINE
 
 

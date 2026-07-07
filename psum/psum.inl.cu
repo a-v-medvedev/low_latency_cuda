@@ -73,59 +73,126 @@ __device__ void merge_blocks(int tid, TYPE *output, int offset, int numElements)
 }
 
 // note: static assert: threadsPerBlock >= maxBlocksInGrid
-template <typename TYPE, int threadsPerBlock, int maxBlocksInGrid>
-__global__ void inclusive_scan(TYPE *input, TYPE *output, int *idx, int numElements, int *npti) {
+template <typename TYPEIN, typename TYPEOUT, int threadsPerBlock, int maxBlocksInGrid>
+__global__ void inclusive_scan(TYPEIN *input, TYPEOUT *output, int numElements) {
   int tid = threadIdx.x + blockIdx.x * blockDim.x;
   int chunk_stride = threadsPerBlock * gridDim.x;
   int nchunks = (numElements + chunk_stride - 1) / chunk_stride;
   for (int chunk = 0; chunk < nchunks; chunk++) {
     int gtid = tid + (chunk * chunk_stride);
-    TYPE val = 0;
+    TYPEIN val = 0;
     if (gtid < numElements) {
       val = input[gtid];
     }
-    TYPE result = block_scan<TYPE,threadsPerBlock>(val);
+    TYPEOUT result = block_scan<TYPEOUT,threadsPerBlock>((TYPEOUT)val);
     if (gtid < numElements) {
       output[gtid] = result + val;
     }
-    merge_blocks<TYPE, threadsPerBlock>(tid, output, chunk * chunk_stride, numElements);
-  }
-  if constexpr (std::is_same_v<TYPE, int>) {
-    if (idx) {
-      for (int chunk = 0; chunk < nchunks; chunk++) {
-        int gtid = tid + (chunk * chunk_stride);
-        if (gtid < numElements) {
-          if (input[gtid] != 0) idx[output[gtid]] = gtid;
-        }
-      }
-      if (threadIdx.x + blockIdx.x == 0 && npti) *npti = output[numElements - 1]; 
-    }
+    merge_blocks<TYPEOUT, threadsPerBlock>(tid, output, chunk * chunk_stride, numElements);
   }
 }
 
 // Assumed gridDim.x == 1
-template <typename TYPE, int threadsPerBlock>
-__global__ void inclusive_scan_one_block(TYPE *input, TYPE *output, int *idx, int numElements, int *npti) {
+template <typename TYPEIN, typename TYPEOUT, int threadsPerBlock>
+__global__ void inclusive_scan_one_block(TYPEIN *input, TYPEOUT *output, int numElements) {
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
     int chunk_stride = threadsPerBlock;
     int nchunks = (numElements + chunk_stride - 1) / chunk_stride;
-    TYPE addition = 0; 
+    TYPEOUT addition = 0; 
     for (int chunk = 0; chunk < nchunks; chunk++) {
       int gtid = tid + (chunk * chunk_stride);
 
-      TYPE val = 0;
+      TYPEOUT val = 0;
       if (gtid < numElements) {
-        val = input[gtid] + (threadIdx.x ? 0 : addition);
+        val = (TYPEOUT)input[gtid] + (threadIdx.x ? 0 : addition);
       }
-      TYPE result = block_scan<TYPE,threadsPerBlock>(val);
+      TYPEOUT result = block_scan<TYPEOUT,threadsPerBlock>(val);
       if (gtid < numElements) {
         output[gtid] = result + val;
-        if constexpr (std::is_same_v<TYPE, int>) if (idx && input[gtid]) idx[output[gtid]] = gtid;  
       }
       __syncthreads();
       if (chunk != nchunks - 1)
         addition = output[(chunk + 1) * chunk_stride - 1];
    }
-   if constexpr (std::is_same_v<TYPE, int>) if (threadIdx.x == 0 && npti) *npti = output[numElements - 1];
+}
+
+//--- packloc:
+
+template <typename TYPE, int threadsPerBlock, int maxBlocksInGrid>
+__device__ TYPE merge_blocks_nooutput(int tid, int chunk, bool lastinchunk, TYPE input_value) {
+  static __device__ TYPE latest_inputs_per_block[maxBlocksInGrid];
+  static __device__ TYPE latest_output_for_previous_chunk[1];
+  __shared__ TYPE sdata[1];
+  namespace cg = cooperative_groups;
+  cg::grid_group grid = cg::this_grid();
+  if (threadIdx.x == threadsPerBlock - 1)
+    latest_inputs_per_block[blockIdx.x] = input_value;
+  grid.sync();
+
+  TYPE addition = 0;
+  if (blockIdx.x) {
+    TYPE input_value_for_addition = latest_inputs_per_block[threadIdx.x];
+    addition = block_scan<TYPE,threadsPerBlock>(input_value_for_addition);
+    if (threadIdx.x == blockIdx.x) {
+      sdata[0] = addition;
+    }
+    __syncthreads();
+    addition = sdata[0];
+  }
+  TYPE addition_from_prev_chunk = 0;
+  if (chunk) addition_from_prev_chunk = latest_output_for_previous_chunk[0];
+  input_value += addition + addition_from_prev_chunk;
+  grid.sync();
+  if (lastinchunk) latest_output_for_previous_chunk[0] = input_value;    
+  return input_value;
+}
+
+// note: static assert: threadsPerBlock >= maxBlocksInGrid
+template <typename TYPEIN, typename TYPEOUT, int threadsPerBlock, int maxBlocksInGrid>
+__global__ void packloc(TYPEIN *input, TYPEOUT *idx, int *n, int numElements) {
+  int tid = threadIdx.x + blockIdx.x * blockDim.x;
+  int chunk_stride = threadsPerBlock * gridDim.x;
+  int nchunks = (numElements + chunk_stride - 1) / chunk_stride;
+  TYPEOUT result = 0;
+  for (int chunk = 0; chunk < nchunks; chunk++) {
+    int gtid = tid + (chunk * chunk_stride);
+    TYPEOUT val = 0;
+    if (gtid < numElements) {
+      val = (TYPEOUT)(input[gtid]?1:0);
+    }
+    result = block_scan<TYPEOUT,threadsPerBlock>(val) + val;
+    result = merge_blocks_nooutput<TYPEOUT, threadsPerBlock,maxBlocksInGrid>(tid, chunk, tid == chunk_stride - 1, result);
+    if constexpr (std::is_same_v<TYPEOUT, int>) {
+      if (gtid < numElements && input[gtid] != 0) idx[result] = gtid;
+    }
+  }
+  if constexpr (std::is_same_v<TYPEOUT, int>) {
+    if (tid + ((nchunks - 1) * chunk_stride) == numElements - 1) *n = result;
+  }
+}
+
+// Assumed gridDim.x == 1
+template <typename TYPEIN, typename TYPEOUT, int threadsPerBlock>
+__global__ void packloc_one_block(TYPEIN *input, TYPEOUT *idx, int *n, int numElements) {
+    __shared__ TYPEOUT sdata[2];
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    int chunk_stride = threadsPerBlock;
+    int nchunks = (numElements + chunk_stride - 1) / chunk_stride;
+    TYPEOUT addition = 0; 
+    for (int chunk = 0; chunk < nchunks; chunk++) {
+      int gtid = tid + (chunk * chunk_stride);
+      TYPEOUT val = 0;
+      if (gtid < numElements) {
+        val = (TYPEOUT)(input[gtid]?1:0) + (threadIdx.x ? 0 : addition);
+      }
+      TYPEOUT result = block_scan<TYPEOUT,threadsPerBlock>(val);
+      if (gtid < numElements) {
+        if constexpr (std::is_same_v<TYPEOUT, int>) if (input[gtid]) idx[result + val] = gtid;
+      }
+      if (tid == chunk_stride - 1) sdata[0] = result + val;
+      if (chunk == nchunks - 1 && gtid == numElements - 1) sdata[1] = result + val;
+      __syncthreads();
+   }
+   if constexpr (std::is_same_v<TYPEOUT, int>) if (threadIdx.x == 0) *n = sdata[1];
 }
 
