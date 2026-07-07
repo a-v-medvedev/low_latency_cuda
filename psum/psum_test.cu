@@ -119,7 +119,7 @@ int test(const unsigned int N) {
       int numBlocks = (N + threadsPerBlock - 1) / threadsPerBlock;
       if (numBlocks < 7) {
         for (int j = 0; j < ncycles; j++) {
-          inclusive_scan_one_block<int,threadsPerBlock><<<1,threadsPerBlock>>>(input, output, 0, numElements, 0);
+          inclusive_scan_one_block<int,threadsPerBlock><<<1,threadsPerBlock>>>(input, output, numElements);
         }
       //} else if (numBlocks < 4) { 
       //  for (int j = 0; j < ncycles; j++) {
@@ -140,8 +140,7 @@ int test(const unsigned int N) {
         // the kernel will automatically detect that we have more elements to process than threads in grid, 
         // and will do sequential execution in chunks
         numBlocks = std::min(numBlocks, maxNumBlocks); 
-        int *idx = 0, *npti = 0;
-        void *args[] = {&input, &output, &idx, &numElements, &npti};
+        void *args[] = {&input, &output, &numElements};
         for (int j = 0; j < ncycles; j++) {
           cudaLaunchCooperativeKernel((void *)inclusive_scan<int,threadsPerBlock,maxBlocksPerGrid>, numBlocks, threadsPerBlock, args, 0, 0);
         } 

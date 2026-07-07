@@ -73,40 +73,40 @@ __device__ void merge_blocks(int tid, TYPE *output, int offset, int numElements)
 }
 
 // note: static assert: threadsPerBlock >= maxBlocksInGrid
-template <typename TYPEIN, typename TYPEOUT, int threadsPerBlock, int maxBlocksInGrid>
-__global__ void inclusive_scan(TYPEIN *input, TYPEOUT *output, int numElements) {
+template <typename TYPE, int threadsPerBlock, int maxBlocksInGrid>
+__global__ void inclusive_scan(TYPE *input, TYPE *output, int numElements) {
   int tid = threadIdx.x + blockIdx.x * blockDim.x;
   int chunk_stride = threadsPerBlock * gridDim.x;
   int nchunks = (numElements + chunk_stride - 1) / chunk_stride;
   for (int chunk = 0; chunk < nchunks; chunk++) {
     int gtid = tid + (chunk * chunk_stride);
-    TYPEIN val = 0;
+    TYPE val = 0;
     if (gtid < numElements) {
       val = input[gtid];
     }
-    TYPEOUT result = block_scan<TYPEOUT,threadsPerBlock>((TYPEOUT)val);
+    TYPE result = block_scan<TYPE,threadsPerBlock>(val);
     if (gtid < numElements) {
       output[gtid] = result + val;
     }
-    merge_blocks<TYPEOUT, threadsPerBlock>(tid, output, chunk * chunk_stride, numElements);
+    merge_blocks<TYPE, threadsPerBlock>(tid, output, chunk * chunk_stride, numElements);
   }
 }
 
 // Assumed gridDim.x == 1
-template <typename TYPEIN, typename TYPEOUT, int threadsPerBlock>
-__global__ void inclusive_scan_one_block(TYPEIN *input, TYPEOUT *output, int numElements) {
+template <typename TYPE, int threadsPerBlock>
+__global__ void inclusive_scan_one_block(TYPE *input, TYPE *output, int numElements) {
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
     int chunk_stride = threadsPerBlock;
     int nchunks = (numElements + chunk_stride - 1) / chunk_stride;
-    TYPEOUT addition = 0; 
+    TYPE addition = 0; 
     for (int chunk = 0; chunk < nchunks; chunk++) {
       int gtid = tid + (chunk * chunk_stride);
 
-      TYPEOUT val = 0;
+      TYPE val = 0;
       if (gtid < numElements) {
-        val = (TYPEOUT)input[gtid] + (threadIdx.x ? 0 : addition);
+        val = (TYPE)input[gtid] + (threadIdx.x ? 0 : addition);
       }
-      TYPEOUT result = block_scan<TYPEOUT,threadsPerBlock>(val);
+      TYPE result = block_scan<TYPE,threadsPerBlock>(val);
       if (gtid < numElements) {
         output[gtid] = result + val;
       }
