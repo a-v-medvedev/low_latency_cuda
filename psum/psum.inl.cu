@@ -72,6 +72,35 @@ __device__ void merge_blocks(int tid, TYPE *output, int offset, int numElements)
   }
 }
 
+template <typename TYPE, int threadsPerBlock, int maxBlocksInGrid>
+__device__ TYPE merge_blocks_nooutput(int tid, int chunk, bool lastinchunk, TYPE input_value) {
+  static __device__ TYPE latest_inputs_per_block[maxBlocksInGrid];
+  static __device__ TYPE latest_output_for_previous_chunk[1];
+  __shared__ TYPE sdata[1];
+  namespace cg = cooperative_groups;
+  cg::grid_group grid = cg::this_grid();
+  if (threadIdx.x == threadsPerBlock - 1)
+    latest_inputs_per_block[blockIdx.x] = input_value;
+  grid.sync();
+
+  TYPE addition = 0;
+  if (blockIdx.x) {
+    TYPE input_value_for_addition = latest_inputs_per_block[threadIdx.x];
+    addition = block_scan<TYPE,threadsPerBlock>(input_value_for_addition);
+    if (threadIdx.x == blockIdx.x) {
+      sdata[0] = addition;
+    }
+    __syncthreads();
+    addition = sdata[0];
+  }
+  TYPE addition_from_prev_chunk = 0;
+  if (chunk) addition_from_prev_chunk = latest_output_for_previous_chunk[0];
+  input_value += addition + addition_from_prev_chunk;
+  grid.sync();
+  if (lastinchunk) latest_output_for_previous_chunk[0] = input_value;    
+  return input_value;
+}
+
 // note: static assert: threadsPerBlock >= maxBlocksInGrid
 template <typename TYPE, int threadsPerBlock, int maxBlocksInGrid>
 __global__ void inclusive_scan(TYPE *input, TYPE *output, int numElements) {
@@ -84,9 +113,9 @@ __global__ void inclusive_scan(TYPE *input, TYPE *output, int numElements) {
     if (gtid < numElements) {
       val = input[gtid];
     }
-    TYPE result = block_scan<TYPE,threadsPerBlock>(val);
+    TYPE result = block_scan<TYPE,threadsPerBlock>(val) + val;
     if (gtid < numElements) {
-      output[gtid] = result + val;
+      output[gtid] = result;
     }
     merge_blocks<TYPE, threadsPerBlock>(tid, output, chunk * chunk_stride, numElements);
   }
@@ -118,34 +147,6 @@ __global__ void inclusive_scan_one_block(TYPE *input, TYPE *output, int numEleme
 
 //--- packloc:
 
-template <typename TYPE, int threadsPerBlock, int maxBlocksInGrid>
-__device__ TYPE merge_blocks_nooutput(int tid, int chunk, bool lastinchunk, TYPE input_value) {
-  static __device__ TYPE latest_inputs_per_block[maxBlocksInGrid];
-  static __device__ TYPE latest_output_for_previous_chunk[1];
-  __shared__ TYPE sdata[1];
-  namespace cg = cooperative_groups;
-  cg::grid_group grid = cg::this_grid();
-  if (threadIdx.x == threadsPerBlock - 1)
-    latest_inputs_per_block[blockIdx.x] = input_value;
-  grid.sync();
-
-  TYPE addition = 0;
-  if (blockIdx.x) {
-    TYPE input_value_for_addition = latest_inputs_per_block[threadIdx.x];
-    addition = block_scan<TYPE,threadsPerBlock>(input_value_for_addition);
-    if (threadIdx.x == blockIdx.x) {
-      sdata[0] = addition;
-    }
-    __syncthreads();
-    addition = sdata[0];
-  }
-  TYPE addition_from_prev_chunk = 0;
-  if (chunk) addition_from_prev_chunk = latest_output_for_previous_chunk[0];
-  input_value += addition + addition_from_prev_chunk;
-  grid.sync();
-  if (lastinchunk) latest_output_for_previous_chunk[0] = input_value;    
-  return input_value;
-}
 
 // note: static assert: threadsPerBlock >= maxBlocksInGrid
 template <typename TYPEIN, typename TYPEOUT, int threadsPerBlock, int maxBlocksInGrid>
