@@ -104,7 +104,7 @@ __global__ void inclusive_scan_one_block(TYPE *input, TYPE *output, int numEleme
 
       TYPE val = 0;
       if (gtid < numElements) {
-        val = (TYPE)input[gtid] + (threadIdx.x ? 0 : addition);
+        val = input[gtid] + (threadIdx.x ? 0 : addition);
       }
       TYPE result = block_scan<TYPE,threadsPerBlock>(val);
       if (gtid < numElements) {
