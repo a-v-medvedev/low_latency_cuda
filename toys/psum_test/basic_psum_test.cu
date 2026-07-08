@@ -13,62 +13,61 @@
 // Extended to handle arbitrary size arrays by Alexey V. Medvedev https://github.com/a-v-medvedev/low_latency_cuda
 
 /*
-$ nvcc --extended-lambda -arch=native -O3 -o psum_test_custom psum_test.cu
-$ nvcc --extended-lambda -arch=native -O3 -DWITH_THRUST_SCAN -o psum_test_thrust psum_test.cu
-$ nvfortran -cuda -acc=gpu -O3 -o psum_test_fortran psum_test_fortran.f90 -cudalib=cutensor
+$ nvcc --extended-lambda -arch=native -O3 -o psum_test_custom basic_psum_test.cu
+$ nvcc --extended-lambda -arch=native -O3 -DWITH_THRUST_SCAN -o psum_test_thrust basic_psum_test.cu
+$ nvfortran -cuda -acc=gpu -O3 -o psum_test_tensor basic_psum_test_tensor_sumprefix.f90 -cudalib=cutensor
 $ ./psum_test_custom > custom.log
 $ ./psum_test_thrust > thrust.log
-$ ./psum_test_fortran > fortran.log
-$ paste custom.log thrust.log fortran.log > compare.txt
+$ ./psum_test_tensor > fortran.log
+$ paste custom.log thrust.log tensor.log > compare.txt
 $ cat compare.txt | sed 's/[ \t]i=[^ ]* / /g;s/[iusec]*=//g;/^[ \t]*1[ \t]/d' > table.txt
 $ cat table.txt | awk '{if (NF==4) printf "%10d %10.6f %10.6f %10.6f -- %5.1f %5.1f %5.1f\n", $1, $1 / $2 / 1024, $1 / $3 / 1024, $1 / $4 / 1024, $2, $3, $4 }' > table_pretty.txt
 
 General observations:
-- we can reach 2.4..6.6 usec latency for arrays of less than 100K elements
-- we can have BW in the diapason: 15..30 Gigatransfers per second for 100K..5M elements (type: int 4 bytes)
-- thrust is better in two diapasons:
-  - [256K; 512K) elements
-  - [5M; Inf) elements
+- we can reach 2.5..6.2 usec latency for arrays of less than 100K elements
+- we can have BW in the diapason: 15..40 Gigatransfers per second for 100K..5M elements (type: int 4 bytes)
+- thrust is better than our code starting from 5M elements
 - BW smoothly grows after 5M with the thrust version up to ~160 Gigatranfers per second
 - we also have the Fortran code with the SUM_PREFIX intrinsic doing the same: it is generally worse 
-  besides one diapason: [1.6M; 10M] where it significantly outpeforms thrust code
+  besides one diapason: [3M; 10M] where it significantly outpeforms both ours code and thrust code
 
-     bytes   bw GINTps custom   bw GINTps thrust        usec custom  usec thrust 
-         2   0.000824           0.000148         --       2.4          13.2
-         3   0.001237           0.000223         --       2.4          13.1
-       101   0.041545           0.007421         --       2.4          13.3
-       941   0.388248           0.069123         --       2.4          13.3
-      1031   0.342893           0.074800         --       2.9          13.5
-      2151   0.616333           0.151515         --       3.4          13.9
-      3121   0.782022           0.218851         --       3.9          13.9
-      4551   1.002444           0.322898         --       4.4          13.8
-      6051   1.197645           0.428003         --       4.9          13.8
-      6651   1.242918           0.469216         --       5.2          13.8
-     10691   1.814717           0.756021         --       5.8          13.8
-     20791   3.502451           1.464914         --       5.8          13.9
-     30411   5.073154           2.118126         --       5.9          14.0
-     48951   8.008663           3.393945         --       6.0          14.1
-    104881  15.549241           6.982265         --       6.6          14.7
-    153521  16.992276          10.085627         --       8.8          14.9
-    204321  21.181765          13.040470         --       9.4          15.3
-    247221  24.101703          15.453291         --      10.0          15.6
->   271941  13.132597          17.138908         --      20.2          15.5
->   481731  23.155015          29.107810         --      20.3          16.2
-    705281  24.938481           5.348110         --      27.6         128.8
-    938711  26.383180           7.105563         --      34.7         129.0
-   1374351  26.966840           9.423814         --      49.8         142.4
-   2012161  30.366265          14.550174         --      64.7         135.1
-   3240571  30.983162          23.248752         --     102.1         136.1
-   4313181  29.552311          25.610086         --     142.5         164.5
->  5218931  29.550718          32.524648         --     172.5         156.7
->  6946391  27.901061          38.785506         --     243.1         174.9
->  8405121  27.583849          43.926608         --     297.6         186.9
-> 10170191  28.047294          52.491027         --     354.1         189.2
-> 11187201  27.934749          56.213023         --     391.1         194.3
-> 12305921  28.267826          54.899502         --     425.1         218.9
-> 13536511  28.242034          60.558198         --     468.1         218.3
-> 14890161  28.129868          66.997663         --     516.9         217.0
-> 16379171  28.277706          70.142449         --     565.6         228.0
+     bytes   bw GINTps     bw GINTps     bw GINTps         latency usec   latency usec  latency usec
+             custom        thrust        SUM_PREFIX        custom         thrust        SUM_PREFIX
+
+         2   0.000768      0.000152      0.000148   --     2.5            12.8          13.2
+         3   0.001155      0.000228      0.000222   --     2.5            12.8          13.2
+       101   0.038515      0.007607      0.007081   --     2.6            13.0          13.9
+       941   0.352519      0.070776      0.044074   --     2.6            13.0          20.9
+      1031   0.321611      0.077514      0.046313   --     3.1            13.0          21.7
+      2151   0.576403      0.155469      0.068334   --     3.6            13.5          30.7
+      3121   0.733768      0.223881      0.078634   --     4.2            13.6          38.8
+      4551   0.951454      0.330803      0.138324   --     4.7            13.4          32.1
+      6051   1.138263      0.437762      0.153445   --     5.2            13.5          38.5
+     10691   1.714553      0.775560      0.334951   --     6.1            13.5          31.2
+     20791   3.353768      1.495780      0.649927   --     6.1            13.6          31.2
+     30411   4.885383      2.170448      0.922019   --     6.1            13.7          32.2
+     48951   7.885799      3.458023      1.434255   --     6.1            13.8          33.3
+    104881  16.506503      7.065594      2.206913   --     6.2            14.5          46.4
+    153521  21.371754     10.116252      3.802253   --     7.0            14.8          39.4
+    204321  27.682051     13.278248      5.504337   --     7.2            15.0          36.2
+    247221  32.104622     15.663839      5.606752   --     7.5            15.4          43.1
+    271941  23.050723     17.173266      6.863980   --    11.5            15.5          38.7
+    481731  37.917339     29.404365     11.087448   --    12.4            16.0          42.4
+    705281  40.045990      5.260894     11.634307   --    17.2           130.9          59.2
+    938711  40.623503      5.821453     19.537723   --    22.6           157.5          46.9
+   1374351  40.438073     11.396278     21.626485   --    33.2           117.8          62.1
+   2012161  43.666688     16.530672     37.321956   --    45.0           118.9          52.6
+>> 3240571  43.250241     25.653535     57.960075   --    73.2           123.4          54.6
+>> 4313181  38.643035     30.122941     64.346025   --   109.0           139.8          65.5
+>> 5218931  38.613625     29.709194     60.862339   --   132.0           171.6          83.7
+>> 6946391  38.110028     40.099219     54.565516   --   178.0           169.2         124.3
+>> 8405121  38.101128     44.179590     49.749233   --   215.4           185.8         165.0
+> 10170191  38.571700     55.051423     50.059613   --   257.5           180.4         198.4
+> 11187201  38.528005     56.883271     50.588076   --   283.6           192.1         216.0
+> 12305921  38.914257     60.971593     51.464610   --   308.8           197.1         233.5
+> 13536511  38.786600     61.053247     51.891066   --   340.8           216.5         254.8
+> 14890161  38.655855     66.516504     51.643189   --   376.2           218.6         281.6
+> 16379171  38.621026     73.484101     52.515872   --   414.2           217.7         304.6
 */
 
 #include "psum.inl.cu"
@@ -117,19 +116,14 @@ int test(const unsigned int N) {
 #if !defined WITH_THRUST_SCAN
   {
       const int threadsPerBlock = 1024; 
-      static int maxNumBlocksPerDevice = 0;
-      const int maxBlocksPerGrid = 256; 
       int numBlocks = (N + threadsPerBlock - 1) / threadsPerBlock;
-      void *args[] = {&input, &output, &numElements};
       if (numBlocks < 7) {
         for (int j = 0; j < ncycles; j++) {
           inclusive_scan_one_block<int,threadsPerBlock><<<1,threadsPerBlock>>>(input, output, numElements);
         }
-      //} else if (numBlocks < 4) { 
-      //  for (int j = 0; j < ncycles; j++) {
-      //    cudaLaunchCooperativeKernel((void *)inclusive_scan_small<int,threadsPerBlock>, numBlocks, threadsPerBlock, args, 0, 0);
-      //  }
       } else {
+        static int maxNumBlocksPerDevice = 0;
+        const int maxBlocksPerGrid = 256; 
         if (!maxNumBlocksPerDevice) {
           cudaDeviceProp deviceProp;
           cudaGetDeviceProperties(&deviceProp, 0);
@@ -142,6 +136,7 @@ int test(const unsigned int N) {
         // the kernel will automatically detect that we have more elements to process than threads in grid, 
         // and will do sequential execution in chunks
         numBlocks = std::min(numBlocks, maxNumBlocks); 
+        void *args[] = {&input, &output, &numElements};
         for (int j = 0; j < ncycles; j++) {
           cudaLaunchCooperativeKernel((void *)inclusive_scan<int,threadsPerBlock,maxBlocksPerGrid>, numBlocks, threadsPerBlock, args, 0, 0);
         } 
@@ -206,5 +201,4 @@ int main(int argc, char **argv)
   }
   return 0;
 }
-
 

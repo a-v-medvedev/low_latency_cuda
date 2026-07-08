@@ -1,5 +1,7 @@
 !! nvfortran -cuda -acc=gpu -O3 -o sc_test sc_test.f90 -cudalib=cutensor
 
+#define PACKLOC_CUSTOM packloc_custom_new
+
 PROGRAM SCTEST
    use iso_fortran_env, only : real32, real64
    use print_norms
@@ -75,8 +77,8 @@ PROGRAM SCTEST
    call test6(x_, y_)
 #endif
    call test7(x_, y_)
-   call test8(x_, y_)
-   call test9(x_, y_)
+!!   call test8(x_, y_)
+!!   call test9(x_, y_)
   
    !! actual tests 
    ncycles = 10
@@ -304,23 +306,30 @@ CONTAINS
    ! subroutines. Each tab_*() subroutine here is a separate GPU kernels annotated with async(1)
    SUBROUTINE test3(x, y)
       REAL(dp) :: x(:,:), y(:,:)
+      TARGET :: x
+      REAL(dp), POINTER :: x1d(:)
       INTEGER :: npti
       INTEGER, ALLOCATABLE :: nptidx(:)
       LOGICAL, ALLOCATABLE :: mask(:)
       REAL(dp), ALLOCATABLE :: z1(:), z2(:), z3(:), z4(:), z5(:), z6(:), z7(:), z8(:), z9(:), z10(:)
+      LOGICAL, ALLOCATABLE :: ll_condition_1d(:)
       INTEGER :: j, k, m, count_rate, count_start, count_end
       REAL(dp) :: tmp1, tmp2, tmp3
 
+      allocate(ll_condition_1d(jpi*jpj),source=.false.)
       allocate(nptidx(jpi*jpj))  ! largest possible size
       allocate(z1(jpi*jpj),z2(jpi*jpj),z3(jpi*jpj),z4(jpi*jpj),z5(jpi*jpj),z6(jpi*jpj),z7(jpi*jpj),z8(jpi*jpj),z9(jpi*jpj),z10(jpi*jpj))       ! largest possible size
       nptidx = 0
       z1 = 0; z2 = 0; z3 = 0; z4 = 0; z5 = 0; z6 = 0; z7 = 0; z8 = 0; z9 = 0; z10 = 0;
 
-      !$acc data copy(nptidx,z10,x,y) create(z1,z2,z3,z4,z5,z6,z7,z8,z9)
+      x1d(1:jpi*jpj) => x(:,:)
+      do k=1,size(ll_condition_1d); ll_condition_1d(k)=(x1d(k) > threshold); enddo
+
+      !$acc data copy(nptidx,ll_condition_1d,z10,x,y) create(z1,z2,z3,z4,z5,z6,z7,z8,z9)
       call system_clock(count_rate = count_rate)
       call system_clock(count_start)
       do k = 1, ncycles
-         call packloc_custom(x, threshold, nptidx, npti)
+         call PACKLOC_CUSTOM(ll_condition_1d, nptidx, npti)
          DO m = 1, ncycles_tab
             call tab_2d_1d_gpu(npti, nptidx, z1, y)
             call tab_2d_1d_gpu(npti, nptidx, z2, y)
@@ -620,6 +629,7 @@ CONTAINS
             case(10) ; call tab_2d_1d_device(npti, nptidx, z10, y)
             end select
             end do
+            !$acc end parallel loop
          END DO
          DO m = 1, ncycles_tab
             !$acc parallel loop gang vector default(present) private(j,tmp1,tmp2,tmp3) async(1)
@@ -633,7 +643,7 @@ CONTAINS
             !$acc end parallel loop
          END DO
          DO m = 1, ncycles_tab
-         !$acc parallel loop gang(dim:2) num_gangs(256,10) async(1)
+            !$acc parallel loop gang(dim:2) num_gangs(256,10) async(1)
             do p=1,10
             select case(p)
             case(1)  ; call tab_1d_2d_device(npti, nptidx, z1, y)
@@ -648,6 +658,7 @@ CONTAINS
             case(10) ; call tab_1d_2d_device(npti, nptidx, z10, y)
             end select
             end do
+            !$acc end parallel loop
          END DO
          !$acc wait(1)
       end do
@@ -672,20 +683,26 @@ CONTAINS
    SUBROUTINE test7(x, y)
       REAL(dp) :: x(:,:), y(:,:)
       TARGET :: x
+      REAL(dp), POINTER :: x1d(:)
       INTEGER :: npti
       INTEGER, ALLOCATABLE :: nptidx(:)
+      LOGICAL, ALLOCATABLE :: ll_condition_1d(:)
       REAL(dp), ALLOCATABLE :: z1(:), z2(:), z3(:), z4(:), z5(:), z6(:), z7(:), z8(:), z9(:), z10(:)
       INTEGER :: j, k, m, p, count_rate, count_start, count_end
       REAL(dp) :: tmp1, tmp2, tmp3
 
+      allocate(ll_condition_1d(jpi*jpj),source=.false.)
       allocate(nptidx(jpi*jpj))  ! largest possible size
       allocate(z1(jpi*jpj),z2(jpi*jpj),z3(jpi*jpj),z4(jpi*jpj),z5(jpi*jpj),z6(jpi*jpj),z7(jpi*jpj),z8(jpi*jpj),z9(jpi*jpj),z10(jpi*jpj))       ! largest possible size
 
-      !$acc data copy(x,y,nptidx,z10) create(z2,z3,z4,z5,z6,z7,z8,z9,z1)
+      x1d(1:jpi*jpj) => x(:,:)
+      do k=1,size(ll_condition_1d); ll_condition_1d(k)=(x1d(k) > threshold); enddo
+
+      !$acc data copy(ll_condition_1d,x,y,nptidx,z10) create(z2,z3,z4,z5,z6,z7,z8,z9,z1)
       call system_clock(count_rate = count_rate)
       call system_clock(count_start)
       do k = 1, ncycles
-         call packloc_custom(x, threshold, nptidx, npti)
+         call PACKLOC_CUSTOM(ll_condition_1d, nptidx, npti)
          DO m = 1, ncycles_tab
             !$acc parallel loop gang(dim:2) num_gangs(256,10) async(1)
             do p=1,10
@@ -702,6 +719,7 @@ CONTAINS
             case(10) ; call tab_2d_1d_device(npti, nptidx, z10, y)
             end select
             end do
+            !$acc end parallel loop
          END DO
          DO m = 1, ncycles_tab
             !$acc parallel loop gang vector default(present) private(j,tmp1,tmp2,tmp3) async(1)
@@ -715,7 +733,7 @@ CONTAINS
             !$acc end parallel loop
          END DO
          DO m = 1, ncycles_tab
-         !$acc parallel loop gang(dim:2) num_gangs(256,10) async(1)
+            !$acc parallel loop gang(dim:2) num_gangs(256,10) async(1)
             do p=1,10
             select case(p)
             case(1)  ; call tab_1d_2d_device(npti, nptidx, z1, y)
@@ -730,6 +748,7 @@ CONTAINS
             case(10) ; call tab_1d_2d_device(npti, nptidx, z10, y)
             end select
             end do
+            !$acc end parallel loop
          END DO
          !$acc wait(1)
       end do
@@ -804,18 +823,23 @@ CONTAINS
    SUBROUTINE test9(x, y)
       REAL(dp) :: x(:,:), y(:,:)
       TARGET :: x
+      REAL(dp), POINTER :: x1d(:)
       INTEGER :: npti
       INTEGER, ALLOCATABLE :: nptidx(:)
       REAL(dp), ALLOCATABLE :: z1(:), z2(:), z3(:), z4(:), z5(:), z6(:), z7(:), z8(:), z9(:), z10(:)
       INTEGER :: j, k, m, p, count_rate, count_start, count_end
       REAL(dp) :: tmp1, tmp2, tmp3
+      LOGICAL, ALLOCATABLE :: ll_condition_1d(:)
 
+      allocate(ll_condition_1d(jpi*jpj),source=.false.)
       allocate(nptidx(jpi*jpj))  ! largest possible size
       allocate(z1(jpi*jpj),z2(jpi*jpj),z3(jpi*jpj),z4(jpi*jpj),z5(jpi*jpj),z6(jpi*jpj),z7(jpi*jpj),z8(jpi*jpj),z9(jpi*jpj),z10(jpi*jpj))       ! largest possible size
 
-      !$acc data copy(x,y,nptidx,z10) create(z1,z2,z3,z4,z5,z6,z7,z8,z9)
-      call packloc_custom(x, threshold, nptidx, npti)
+      x1d(1:jpi*jpj) => x(:,:)
+      do k=1,size(ll_condition_1d); ll_condition_1d(k)=(x1d(k) > threshold); enddo
 
+      !$acc data copy(x,y,ll_condition_1d,nptidx,z10) create(z1,z2,z3,z4,z5,z6,z7,z8,z9)
+      call PACKLOC_CUSTOM(ll_condition_1d, nptidx, npti)
 
       !$acc parallel loop gang(dim:2) num_gangs(2048) async(1)
       do p=1,10
@@ -832,6 +856,7 @@ CONTAINS
       case(10) ; call tab_2d_1d_device(npti, nptidx, z10, y)
       end select
       end do
+      !$acc end parallel loop
       !$acc wait(1)
       call system_clock(count_rate = count_rate)
       call system_clock(count_start)
@@ -865,6 +890,7 @@ CONTAINS
       case(10) ; call tab_1d_2d_device(npti, nptidx, z10, y)
       end select
       end do
+      !$acc end parallel loop
       !$acc wait(1)
       !! NOTE: the extra copy because the previous copies may overwrite y in random order 
       !! This is for having a correct y norm
@@ -1003,7 +1029,7 @@ CONTAINS
       !$acc end loop
    END SUBROUTINE tab_1d_2d_device
 
-   SUBROUTINE packloc_custom(x, threshold, nptidx, npti)
+   SUBROUTINE packloc_custom_old(x, threshold, nptidx, npti)
       USE sum_prefix_custom, only: sum_prefix_custom
       REAL(dp), INTENT(in) :: x(:,:)
       INTEGER, INTENT(in) :: threshold
@@ -1063,6 +1089,44 @@ CONTAINS
       DEALLOCATE(scan_idxflags)
       DEALLOCATE(scan_idxoffsets)
             
+   END SUBROUTINE
+
+   SUBROUTINE packloc_custom_new(condition, nptidx, npti)
+      USE packloc_custom, only: packloc_custom
+      LOGICAL, INTENT(in) :: condition(:)
+      INTEGER, INTENT(inout) :: nptidx(:)
+      INTEGER, INTENT(inout) :: npti 
+
+      !$acc host_data use_device(condition, nptidx)
+      call packloc_custom(condition, nptidx, npti)
+      !$acc end host_data
+
+!!      ALLOCATE(scan_idxflags(sz))
+!!      ALLOCATE(scan_idxoffsets(sz))
+!!      !$acc data create(scan_idxflags,scan_idxoffsets)
+!!      
+!!      !$acc parallel loop collapse(2) private(scan_idx) present(x) async(1)
+!!      DO jj = 1, jpj
+!!         DO ji = 1, jpi
+!!           scan_idx = (jj - 1) * jpi + ji
+!!           IF ( x(ji,jj) > threshold ) THEN
+!!              scan_idxflags(scan_idx) = 1
+!!           else  
+!!              scan_idxflags(scan_idx) = 0
+!!           ENDIF
+!!         END DO
+!!      END DO
+!!      !$acc end parallel loop
+!!
+!!      !$acc host_data use_device(scan_idxflags, scan_idxoffsets, nptidx)
+!!      CALL packloc_custom(scan_idxflags, scan_idxoffsets, nptidx, npti)
+!!      !$acc end host_data
+!!     
+!!      !$acc wait(1)  
+!!
+!!      !$acc end data
+!!      DEALLOCATE(scan_idxflags)
+!!      DEALLOCATE(scan_idxoffsets)
    END SUBROUTINE
 
 !!---------------------------------------------------------------------------------------------

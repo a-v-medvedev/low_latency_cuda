@@ -34,6 +34,7 @@ module sum_prefix_custom
       integer(c_int) :: N
       integer(acc_handle_kind), value :: stream
    end subroutine
+
    end interface
 
 contains
