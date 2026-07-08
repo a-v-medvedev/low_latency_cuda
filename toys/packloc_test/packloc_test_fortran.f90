@@ -141,7 +141,7 @@ CONTAINS
    END SUBROUTINE
 
    SUBROUTINE packloc_custom_new(condition, y, n)
-       USE sum_prefix_custom, only: packloc_custom
+       USE packloc_custom, only: packloc_custom
        IMPLICIT NONE
        LOGICAL, INTENT(in)  :: condition(:)
        INTEGER, INTENT(out) :: y(:)

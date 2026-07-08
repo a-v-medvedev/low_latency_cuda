@@ -1,1 +1,0 @@
-../toys/psum_fortran/sum_prefix_custom.f90

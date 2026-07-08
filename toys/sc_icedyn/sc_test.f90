@@ -1068,7 +1068,7 @@ CONTAINS
    END SUBROUTINE
 
    SUBROUTINE packloc_custom_new(x, threshold, nptidx, npti)
-      USE sum_prefix_custom, only: packloc_custom
+      USE packloc_custom, only: packloc_custom
       REAL(dp), INTENT(in) :: x(:,:)
       INTEGER, INTENT(in) :: threshold
       INTEGER, INTENT(inout) :: nptidx(:)
@@ -1085,32 +1085,32 @@ CONTAINS
       jpi = size(x, 1)
       jpj = size(x, 2)
 
-      ALLOCATE(scan_idxflags(sz))
-      ALLOCATE(scan_idxoffsets(sz))
-      !$acc data create(scan_idxflags,scan_idxoffsets)
-      
-      !$acc parallel loop collapse(2) private(scan_idx) present(x) async(1)
-      DO jj = 1, jpj
-         DO ji = 1, jpi
-           scan_idx = (jj - 1) * jpi + ji
-           IF ( x(ji,jj) > threshold ) THEN
-              scan_idxflags(scan_idx) = 1
-           else  
-              scan_idxflags(scan_idx) = 0
-           ENDIF
-         END DO
-      END DO
-      !$acc end parallel loop
-
-      !$acc host_data use_device(scan_idxflags, scan_idxoffsets, nptidx)
-      CALL packloc_custom(scan_idxflags, scan_idxoffsets, nptidx, npti)
-      !$acc end host_data
-     
-      !$acc wait(1)  
-
-      !$acc end data
-      DEALLOCATE(scan_idxflags)
-      DEALLOCATE(scan_idxoffsets)
+!!      ALLOCATE(scan_idxflags(sz))
+!!      ALLOCATE(scan_idxoffsets(sz))
+!!      !$acc data create(scan_idxflags,scan_idxoffsets)
+!!      
+!!      !$acc parallel loop collapse(2) private(scan_idx) present(x) async(1)
+!!      DO jj = 1, jpj
+!!         DO ji = 1, jpi
+!!           scan_idx = (jj - 1) * jpi + ji
+!!           IF ( x(ji,jj) > threshold ) THEN
+!!              scan_idxflags(scan_idx) = 1
+!!           else  
+!!              scan_idxflags(scan_idx) = 0
+!!           ENDIF
+!!         END DO
+!!      END DO
+!!      !$acc end parallel loop
+!!
+!!      !$acc host_data use_device(scan_idxflags, scan_idxoffsets, nptidx)
+!!      CALL packloc_custom(scan_idxflags, scan_idxoffsets, nptidx, npti)
+!!      !$acc end host_data
+!!     
+!!      !$acc wait(1)  
+!!
+!!      !$acc end data
+!!      DEALLOCATE(scan_idxflags)
+!!      DEALLOCATE(scan_idxoffsets)
    END SUBROUTINE
 
 !!---------------------------------------------------------------------------------------------

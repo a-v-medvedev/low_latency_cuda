@@ -52,11 +52,20 @@ sum_prefix_custom.o: sum_prefix_custom.f90
 sum_prefix_custom_cxx.o: sum_prefix_custom_cxx.cpp
 	$(CXX) -c $(CXXARCHFLAGS) $(CXXGENERICFLAGS) $(CXXEXTRAFLAGS) $(CXXOPTFLAGS) $<
 
-$(BINARY): packloc_test_fortran.o sum_prefix_custom.o sum_prefix_custom_cxx.o
+packloc_custom.o: packloc_custom.f90
+	$(FC) -c -o $@ -cuda $(F90GENERICFLAGS) $(F90EXTRAFLAGS) $(F90ARCHFLAGS) $(F90OPTFLAGS) $<
+# NOTE: -cuda only because of the "device" attribute
+
+packloc_custom_cxx.o: packloc_custom_cxx.cpp
+	$(CXX) -c $(CXXARCHFLAGS) $(CXXGENERICFLAGS) $(CXXEXTRAFLAGS) $(CXXOPTFLAGS) $<
+
+$(BINARY): packloc_test_fortran.o sum_prefix_custom.o sum_prefix_custom_cxx.o packloc_custom.o packloc_custom_cxx.o
+
 	$(FC) $(LINKARCHFLAGS) $(LINKGENERICFLAGS) $(LINKOPTFLAGS) -o $@ $^ $(LINKERLIBS) $(LINKEXTRALIBS)
 
 sum_prefix_custom.o: sum_prefix_custom_cxx.o Makefile psum.inl.cu
-packloc_test_fortran.o: sum_prefix_custom.o Makefile
+packloc_custom.o: packloc_custom_cxx.o Makefile psum.inl.cu
+packloc_test_fortran.o: sum_prefix_custom.o packloc_custom.o Makefile
 
 clean:
 	rm -f *.o *.mod $(BINARY)

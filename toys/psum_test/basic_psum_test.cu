@@ -13,13 +13,13 @@
 // Extended to handle arbitrary size arrays by Alexey V. Medvedev https://github.com/a-v-medvedev/low_latency_cuda
 
 /*
-$ nvcc --extended-lambda -arch=native -O3 -o psum_test_custom psum_test.cu
-$ nvcc --extended-lambda -arch=native -O3 -DWITH_THRUST_SCAN -o psum_test_thrust psum_test.cu
-$ nvfortran -cuda -acc=gpu -O3 -o psum_test_fortran psum_test_fortran.f90 -cudalib=cutensor
+$ nvcc --extended-lambda -arch=native -O3 -o psum_test_custom basic_psum_test.cu
+$ nvcc --extended-lambda -arch=native -O3 -DWITH_THRUST_SCAN -o psum_test_thrust basic_psum_test.cu
+$ nvfortran -cuda -acc=gpu -O3 -o psum_test_tensor basic_psum_test_tensor_sumprefix.f90 -cudalib=cutensor
 $ ./psum_test_custom > custom.log
 $ ./psum_test_thrust > thrust.log
-$ ./psum_test_fortran > fortran.log
-$ paste custom.log thrust.log fortran.log > compare.txt
+$ ./psum_test_tensor > fortran.log
+$ paste custom.log thrust.log tensor.log > compare.txt
 $ cat compare.txt | sed 's/[ \t]i=[^ ]* / /g;s/[iusec]*=//g;/^[ \t]*1[ \t]/d' > table.txt
 $ cat table.txt | awk '{if (NF==4) printf "%10d %10.6f %10.6f %10.6f -- %5.1f %5.1f %5.1f\n", $1, $1 / $2 / 1024, $1 / $3 / 1024, $1 / $4 / 1024, $2, $3, $4 }' > table_pretty.txt
 
@@ -121,10 +121,6 @@ int test(const unsigned int N) {
         for (int j = 0; j < ncycles; j++) {
           inclusive_scan_one_block<int,threadsPerBlock><<<1,threadsPerBlock>>>(input, output, numElements);
         }
-      //} else if (numBlocks < 4) { 
-      //  for (int j = 0; j < ncycles; j++) {
-      //    cudaLaunchCooperativeKernel((void *)inclusive_scan_small<int,threadsPerBlock>, numBlocks, threadsPerBlock, args, 0, 0);
-      //  }
       } else {
         static int maxNumBlocksPerDevice = 0;
         const int maxBlocksPerGrid = 256; 
@@ -205,5 +201,4 @@ int main(int argc, char **argv)
   }
   return 0;
 }
-
 
