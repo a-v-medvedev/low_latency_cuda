@@ -1,5 +1,7 @@
 !! nvfortran -cuda -acc=gpu -O3 -o packloc_test_fortran packloc_test_fortran.f90 -cudalib=cutensor
 
+!!#define WITH_CHECK
+
 PROGRAM packloc_test
    IMPLICIT NONE
    INTEGER, PARAMETER :: INITIAL_NCYCLES = 10000
@@ -23,21 +25,28 @@ PROGRAM packloc_test
 CONTAINS
 
    FUNCTION TEST(sz)
+#if defined WITH_PACKLOC_CUTENSOREX
       use cutensorex, only: packloc
+#endif
       IMPLICIT NONE
       INTEGER :: sz
       INTEGER :: test
-      INTEGER :: i, k, threshold = 6, n
+      INTEGER :: i, k, threshold = 6, n, n_cpu
       INTEGER :: count_rate, count_start, count_end
-      INTEGER, ALLOCATABLE :: x(:), y(:)
+      INTEGER, ALLOCATABLE :: x(:), y(:), y_cpu(:)
       LOGICAL, ALLOCATABLE :: condition(:) 
       ALLOCATE(X(sz), source=0)
       ALLOCATE(Y(sz), source=0)
+      ALLOCATE(Y_CPU(sz), source=0)
       ALLOCATE(condition(sz), source=.false.)
 
       x = [( merge(i, -i, mod(i,2)==1), i=1,sz )]
       do i=1,sz; if (x(i) > 0) x(i) = mod(x(i),10); end do 
       do i=1,sz; condition(i) = (x(i) > threshold); end do
+
+#if defined WITH_CHECK
+      call packloc_cpu(condition,y_cpu,n_cpu)
+#endif
 
       !$acc data copy(y,condition)
       call system_clock(count_rate = count_rate)
@@ -56,8 +65,41 @@ CONTAINS
       call cudaDeviceSynchronize()
       call system_clock(count_end)
       !$acc end data 
+
       test = INT(real(count_end - count_start) / real(count_rate) * 1e6)
+
+#if defined WITH_CHECK
+      if (n /= n_cpu) then
+         write(*,'(A,I0,A,I0,A,I0)') ">> i=", sz, " comparison of n failed, n on gpu: ", n, "; on cpu: ", n_cpu
+         stop 0 
+      end if
+      do i=1,n_cpu
+         if (y(i) /= y_cpu(i)) then
+            write (*,'(A,I0,A,I0,A,I0,A,I0)') ">> i=", sz, " comparison failed for elem=", i, " gpu: ", y(i), " cpu: ", y_cpu(i); 
+            stop 0
+         end if
+      end do
+#endif
+
+      DEALLOCATE(X, Y, Y_CPU, condition) 
+
    END FUNCTION
+
+   SUBROUTINE packloc_cpu(condition, y, n)
+       IMPLICIT NONE
+       LOGICAL, INTENT(in)  :: condition(:)
+       INTEGER, INTENT(out) :: y(:)
+       INTEGER, INTENT(out) :: n
+       INTEGER              :: sz
+       sz = size(condition)
+       n = 0
+       do i=1,sz
+          if (condition(i)) then
+             n = n + 1
+             y(n) = i
+          endif
+       end do
+   END SUBROUTINE
 
    SUBROUTINE packloc_custom_old(condition, y, n)
        USE sum_prefix_custom, only: sum_prefix_custom
@@ -111,8 +153,6 @@ CONTAINS
        !$acc host_data use_device(condition, y)
        CALL packloc_custom(condition, y, n)
        !$acc end host_data
- 
-       !$acc wait(1)  
     END SUBROUTINE
 
 

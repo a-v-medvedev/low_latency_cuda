@@ -85,7 +85,10 @@ __device__ TYPE merge_blocks_nooutput(int tid, int chunk, bool lastinchunk, TYPE
 
   TYPE addition = 0;
   if (blockIdx.x) {
-    TYPE input_value_for_addition = latest_inputs_per_block[threadIdx.x];
+    TYPE input_value_for_addition = 0; 
+    if (threadIdx.x < maxBlocksInGrid) {
+      input_value_for_addition = latest_inputs_per_block[threadIdx.x];
+    }
     addition = block_scan<TYPE,threadsPerBlock>(input_value_for_addition);
     if (threadIdx.x == blockIdx.x) {
       sdata[0] = addition;
@@ -130,7 +133,6 @@ __global__ void inclusive_scan_one_block(TYPE *input, TYPE *output, int numEleme
     TYPE addition = 0; 
     for (int chunk = 0; chunk < nchunks; chunk++) {
       int gtid = tid + (chunk * chunk_stride);
-
       TYPE val = 0;
       if (gtid < numElements) {
         val = input[gtid] + (threadIdx.x ? 0 : addition);
@@ -145,9 +147,9 @@ __global__ void inclusive_scan_one_block(TYPE *input, TYPE *output, int numEleme
    }
 }
 
-//--- packloc:
-
-
+//--- packloc: 
+// NOTE: we assume Fortran style for indexing, that means the index of the first element is "1", not "0"
+// therefore the lowest index value for idx[] is 1.
 // note: static assert: threadsPerBlock >= maxBlocksInGrid
 template <typename TYPEIN, typename TYPEOUT, int threadsPerBlock, int maxBlocksInGrid>
 __global__ void packloc(TYPEIN *input, TYPEOUT *idx, int *n, int numElements) {
@@ -164,7 +166,7 @@ __global__ void packloc(TYPEIN *input, TYPEOUT *idx, int *n, int numElements) {
     result = block_scan<TYPEOUT,threadsPerBlock>(val) + val;
     result = merge_blocks_nooutput<TYPEOUT, threadsPerBlock,maxBlocksInGrid>(tid, chunk, tid == chunk_stride - 1, result);
     if constexpr (std::is_same_v<TYPEOUT, int>) {
-      if (gtid < numElements && input[gtid] != 0) idx[result] = gtid;
+      if (gtid < numElements && input[gtid] != 0) idx[result - 1] = gtid + 1;
     }
   }
   if constexpr (std::is_same_v<TYPEOUT, int>) {
@@ -179,19 +181,19 @@ __global__ void packloc_one_block(TYPEIN *input, TYPEOUT *idx, int *n, int numEl
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
     int chunk_stride = threadsPerBlock;
     int nchunks = (numElements + chunk_stride - 1) / chunk_stride;
-    TYPEOUT addition = 0; 
+    sdata[0] = 0;
     for (int chunk = 0; chunk < nchunks; chunk++) {
       int gtid = tid + (chunk * chunk_stride);
       TYPEOUT val = 0;
       if (gtid < numElements) {
-        val = (TYPEOUT)(input[gtid]?1:0) + (threadIdx.x ? 0 : addition);
+        val = (TYPEOUT)(input[gtid]?1:0) + (threadIdx.x ? 0 : sdata[0]);
       }
-      TYPEOUT result = block_scan<TYPEOUT,threadsPerBlock>(val);
+      TYPEOUT result = block_scan<TYPEOUT,threadsPerBlock>(val) + val;
       if (gtid < numElements) {
-        if constexpr (std::is_same_v<TYPEOUT, int>) if (input[gtid]) idx[result + val] = gtid;
+        if constexpr (std::is_same_v<TYPEOUT, int>) if (input[gtid]) idx[result - 1] = gtid + 1;
       }
-      if (tid == chunk_stride - 1) sdata[0] = result + val;
-      if (chunk == nchunks - 1 && gtid == numElements - 1) sdata[1] = result + val;
+      if (tid == chunk_stride - 1) sdata[0] = result;
+      if (chunk == nchunks - 1 && gtid == numElements - 1) sdata[1] = result;
       __syncthreads();
    }
    if constexpr (std::is_same_v<TYPEOUT, int>) if (threadIdx.x == 0) *n = sdata[1];

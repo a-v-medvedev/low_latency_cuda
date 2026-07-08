@@ -78,6 +78,7 @@ int packloc_wrapper_cxx(TYPEIN *input, TYPEOUT *idx, int numElements, void *stre
     void *args[] = {&input, &idx, &my_npti_dev, &numElements}; 
     cudaLaunchCooperativeKernel((void *)packloc<TYPEIN,TYPEOUT,threadsPerBlock,maxBlocksInGrid>, numBlocks, threadsPerBlock, args, 0, stream); 
   }
+  cudaStreamSynchronize(stream);
   int npti = nptis[my_npti_idx]; 
   concurrent_calls_counter--;
   return npti;
@@ -101,5 +102,6 @@ DECLARE_SCAN_WRAPPER(double)
 
 extern "C" {
 DECLARE_PACKLOC_WRAPPER(char,int)
+DECLARE_PACKLOC_WRAPPER(int,int)
 }
 
