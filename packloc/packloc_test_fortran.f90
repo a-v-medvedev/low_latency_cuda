@@ -90,7 +90,7 @@ CONTAINS
        LOGICAL, INTENT(in)  :: condition(:)
        INTEGER, INTENT(out) :: y(:)
        INTEGER, INTENT(out) :: n
-       INTEGER              :: sz
+       INTEGER              :: i, sz
        sz = size(condition)
        n = 0
        do i=1,sz
