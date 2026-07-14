@@ -1,14 +1,9 @@
-#include <thrust/device_vector.h>
-#include <thrust/scan.h>
-#include <thrust/reduce.h>
 #include <cooperative_groups.h>
 #include <cuda_runtime.h>
 #include <semaphore>
 #include <unordered_map>
 
 #include "packloc.inl.cu"
-
-#define PTRCAST(ptr, type) thrust::device_ptr<type>(ptr)
 
 static int maxNumBlocksPerDevice = 0;
 static int *nptis = nullptr;
