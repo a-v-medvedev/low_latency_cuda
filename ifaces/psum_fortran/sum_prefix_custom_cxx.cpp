@@ -16,7 +16,7 @@ static int maxNumBlocksPerDevice = 0;
 template <typename TYPE>
 void scan_wrapper_cxx(TYPE *input, TYPE *output, int numElements, void *stream_void) { 
   cudaStream_t stream = reinterpret_cast<cudaStream_t>(stream_void); 
-  if (numElements > 5*1024*1024 || (numElements > 256 * 1024 && numElements < 512 * 1024)) { 
+  if (numElements > 5*1024*1024) { 
     thrust::plus<TYPE> binary_op; 
     thrust::inclusive_scan(thrust::cuda::par.on(stream), PTRCAST(input, TYPE), PTRCAST(input, TYPE) + 
         numElements, PTRCAST(output, TYPE), binary_op); 
